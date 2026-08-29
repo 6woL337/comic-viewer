@@ -764,22 +764,51 @@ textarea {
 .comic-arrow {
   position: absolute;
 
-  top: 50%;
+  top: 0;
+  bottom: 0;
 
-  z-index: 20;
+  z-index: 100;
 
-  width: 54px;
-  height: 105px;
-
-  transform: translateY(-50%);
+  width: 70px;
+  height: auto;
 
   border: 0;
-  border-radius: 10px;
+  border-radius: 0;
 
-  background: rgba(255, 255, 255, 0.07);
+  background: transparent;
   color: white;
 
   font-size: 50px;
+
+  cursor: pointer;
+
+  pointer-events: auto;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  opacity: 0.65;
+
+  transform: none;
+}
+
+
+.comic-arrow:hover {
+  opacity: 1;
+
+  background:
+    rgba(255, 255, 255, 0.08);
+}
+
+
+.comic-arrow.left {
+  left: 0;
+}
+
+
+.comic-arrow.right {
+  right: 0;
 }
 
 .comic-arrow.left {
@@ -1029,18 +1058,18 @@ textarea {
   }
 
   .comic-arrow {
-    width: 36px;
-    height: 85px;
+    width: 45px;
+    height: auto;
 
     font-size: 37px;
   }
 
   .comic-arrow.left {
-    left: 3px;
+    left: 0;
   }
 
   .comic-arrow.right {
-    right: 3px;
+    right: 0;
   }
 
   .page-slider {

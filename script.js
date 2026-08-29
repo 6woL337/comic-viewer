@@ -67,10 +67,8 @@ let currentPage =
 let pageMode =
   1;
 
-let readingDirection =
-  localStorage.getItem(
-    "comicReadingDirection"
-  ) || "rtl";
+const readingDirection =
+  "ltr";
 
 
 /* =========================================================
@@ -1090,16 +1088,25 @@ editWorkForm.addEventListener(
         editWorkSaveBtn.textContent =
           "썸네일 업로드 중...";
 
+        const convertedThumbnail =
+  await convertImageToWebP(
+    newThumbnail,
+    {
+      quality: 0.82,
+      maxWidth: 1200
+    }
+  );
 
-        const thumbnailPath =
-          `works/${selectedWork.id}/thumbnail/${Date.now()}_${cleanFilename(newThumbnail.name)}`;
+
+const thumbnailPath =
+  `works/${selectedWork.id}/thumbnail/${Date.now()}_thumbnail.webp`;
 
 
-        uploadedThumbnailUrl =
-          await uploadFile(
-            newThumbnail,
-            thumbnailPath
-          );
+uploadedThumbnailUrl =
+  await uploadFile(
+    convertedThumbnail,
+    thumbnailPath
+  );
 
 
         newThumbnailUrl =
@@ -1255,6 +1262,134 @@ editWorkForm.addEventListener(
   }
 );
 
+/* =========================================================
+   이미지 Preload
+========================================================= */
+
+const preloadedImageUrls =
+  new Set();
+
+
+function preloadImage(
+  url
+) {
+
+  if (
+    !url ||
+    preloadedImageUrls.has(
+      url
+    )
+  ) {
+    return;
+  }
+
+
+  preloadedImageUrls.add(
+    url
+  );
+
+
+  const image =
+    new Image();
+
+
+  image.decoding =
+    "async";
+
+
+  image.src =
+    url;
+}
+
+function preloadComicPages() {
+
+  const chapter =
+    currentChapters[
+      currentVolumeIndex
+    ];
+
+
+  if (!chapter) {
+    return;
+  }
+
+
+  const pages =
+    chapter.images ||
+    [];
+
+
+  /*
+    이전 2장
+    다음 4장
+  */
+
+  const offsets =
+    [
+      -2,
+      -1,
+      1,
+      2,
+      3,
+      4
+    ];
+
+
+  offsets.forEach(
+    offset => {
+
+      const index =
+        currentPage +
+        offset;
+
+
+      if (
+        index >= 0 &&
+        index < pages.length
+      ) {
+
+        preloadImage(
+          pages[index]
+        );
+      }
+
+    }
+  );
+
+
+  /*
+    현재 권의 끝에 가까우면
+    다음 권 첫 이미지도 미리 로딩
+  */
+
+  if (
+    currentPage >=
+      pages.length - 4 &&
+    currentVolumeIndex <
+      currentChapters.length - 1
+  ) {
+
+    const nextChapter =
+      currentChapters[
+        currentVolumeIndex + 1
+      ];
+
+
+    const nextPages =
+      nextChapter?.images ||
+      [];
+
+
+    nextPages
+      .slice(
+        0,
+        2
+      )
+      .forEach(
+        preloadImage
+      );
+  }
+}
 
 /* =========================================================
    회차 불러오기
@@ -1948,6 +2083,19 @@ editChapterForm.addEventListener(
           );
 
 
+          console.log(
+  "Firestore 수정 직전",
+  {
+    workId:
+      selectedWork.id,
+
+    chapterId:
+      editingChapterId,
+
+    newImageUrls
+  }
+);
+
         uploadedNewImages =
           [...newImageUrls];
       }
@@ -1981,6 +2129,9 @@ editChapterForm.addEventListener(
         }
       );
 
+      console.log(
+  "회차 Firestore 업데이트 성공"
+);
 
       await updateDoc(
         doc(
@@ -1993,6 +2144,10 @@ editChapterForm.addEventListener(
             serverTimestamp()
         }
       );
+
+      console.log(
+  "작품 updatedAt 업데이트 성공"
+);
 
 
       /* =========================
@@ -2382,30 +2537,75 @@ function openWebtoonEpisode(
 
 
   images.forEach(
-    url => {
+  (
+    url,
+    index
+  ) => {
 
-      const image =
-        document.createElement(
-          "img"
-        );
-
-      image.src =
-        url;
-
-      image.loading =
-        "lazy";
-
-      image.alt =
-        selectedWork.title;
-
-
-      container.appendChild(
-        image
+    const image =
+      document.createElement(
+        "img"
       );
 
-    }
-  );
 
+    image.src =
+      url;
+
+
+    /*
+      첫 2장은 바로 로딩,
+      나머지는 lazy
+    */
+
+    image.loading =
+      index < 2
+        ? "eager"
+        : "lazy";
+
+
+    image.decoding =
+      "async";
+
+
+    image.alt =
+      selectedWork.title;
+
+
+    /*
+      이 이미지가 로드되면
+      앞으로 몇 장을 미리 받음
+    */
+
+    image.addEventListener(
+      "load",
+      () => {
+
+        preloadWebtoonAround(
+          chapter,
+          index
+        );
+
+      },
+      {
+        once: true
+      }
+    );
+
+
+    container.appendChild(
+      image
+    );
+  }
+);
+
+images
+  .slice(
+    0,
+    4
+  )
+  .forEach(
+    preloadImage
+  );
 
   updateWebtoonNavigation();
 
@@ -2557,6 +2757,78 @@ window.addEventListener(
   }
 );
 
+function preloadWebtoonAround(
+  chapter,
+  currentIndex
+) {
+
+  if (!chapter) {
+    return;
+  }
+
+
+  const images =
+    chapter.images ||
+    [];
+
+
+  /*
+    앞으로 4장
+  */
+
+  for (
+    let i =
+      currentIndex + 1;
+    i <=
+      currentIndex + 4;
+    i++
+  ) {
+
+    if (
+      i <
+      images.length
+    ) {
+
+      preloadImage(
+        images[i]
+      );
+    }
+  }
+
+
+  /*
+    회차 마지막에 가까우면
+    다음 회차 첫 2장도 preload
+  */
+
+  if (
+    currentIndex >=
+      images.length - 3 &&
+    currentEpisodeIndex <
+      currentChapters.length - 1
+  ) {
+
+    const nextChapter =
+      currentChapters[
+        currentEpisodeIndex + 1
+      ];
+
+
+    const nextImages =
+      nextChapter?.images ||
+      [];
+
+
+    nextImages
+      .slice(
+        0,
+        2
+      )
+      .forEach(
+        preloadImage
+      );
+  }
+}
 
 /* =========================================================
    만화 뷰어
@@ -2622,12 +2894,6 @@ function openComicVolume(
         ? ` · ${chapter.title}`
         : ""
     }`;
-
-
-  document.getElementById(
-    "directionSelect"
-  ).value =
-    readingDirection;
 
 
   renderComicPages();
@@ -2710,17 +2976,6 @@ function renderComicPages() {
   }
 
 
-  if (
-    readingDirection ===
-    "rtl"
-  ) {
-
-    indexes =
-      [...indexes].reverse();
-
-  }
-
-
   indexes.forEach(
     pageIndex => {
 
@@ -2751,6 +3006,8 @@ function renderComicPages() {
 
   saveComicProgress();
 
+  preloadComicPages();
+
 }
 
 
@@ -2763,10 +3020,7 @@ function moveComic(
       currentVolumeIndex
     ];
 
-
-  if (
-    !chapter
-  ) {
+  if (!chapter) {
     return;
   }
 
@@ -2775,16 +3029,17 @@ function moveComic(
     chapter.images || [];
 
 
-  const step =
-    pageMode;
-
+  /* =========================
+     다음
+  ========================= */
 
   if (
     direction === "next"
   ) {
 
     const nextPage =
-      currentPage + step;
+      currentPage +
+      pageMode;
 
 
     if (
@@ -2798,9 +3053,10 @@ function moveComic(
       renderComicPages();
 
       return;
-
     }
 
+
+    /* 다음 권 */
 
     if (
       currentVolumeIndex <
@@ -2813,30 +3069,60 @@ function moveComic(
 
     }
 
+    return;
   }
 
+
+  /* =========================
+     이전
+  ========================= */
 
   if (
     direction === "prev"
   ) {
 
-    const prevPage =
-      currentPage - step;
-
+    /*
+      현재 권에서 아직 앞 페이지가 있으면
+      무조건 0 이하로 떨어지지 않게 이동
+    */
 
     if (
-      prevPage >= 0
+      currentPage > 0
     ) {
 
       currentPage =
-        prevPage;
+        Math.max(
+          0,
+          currentPage - pageMode
+        );
+
+
+      /*
+        2페이지 보기일 때
+        0,2,4,6... 위치로 맞춤
+      */
+
+      if (
+        pageMode === 2
+      ) {
+
+        currentPage =
+          Math.floor(
+            currentPage / 2
+          ) * 2;
+
+      }
+
 
       renderComicPages();
 
       return;
-
     }
 
+
+    /* =========================
+       이전 권
+    ========================= */
 
     if (
       currentVolumeIndex > 0
@@ -2845,30 +3131,52 @@ function moveComic(
       currentVolumeIndex--;
 
 
-      const previous =
+      const previousChapter =
         currentChapters[
           currentVolumeIndex
         ];
 
 
       const previousPages =
-        previous.images || [];
+        previousChapter.images ||
+        [];
 
 
-      currentPage =
-        Math.max(
-          0,
-          previousPages.length -
-          pageMode
-        );
+      /*
+        이전 권의 마지막 보기 위치 계산
+      */
+
+      if (
+        pageMode === 2
+      ) {
+
+        currentPage =
+          Math.max(
+            0,
+            Math.floor(
+              (
+                previousPages.length - 1
+              ) / 2
+            ) * 2
+          );
+
+      } else {
+
+        currentPage =
+          Math.max(
+            0,
+            previousPages.length - 1
+          );
+
+      }
 
 
       document.getElementById(
         "comicViewerVolume"
       ).textContent =
-        `${previous.number}권${
-          previous.title
-            ? ` · ${previous.title}`
+        `${previousChapter.number}권${
+          previousChapter.title
+            ? ` · ${previousChapter.title}`
             : ""
         }`;
 
@@ -3020,10 +3328,7 @@ document.getElementById(
   () => {
 
     moveComic(
-      readingDirection ===
-        "rtl"
-        ? "next"
-        : "prev"
+      "prev"
     );
 
   }
@@ -3037,15 +3342,11 @@ document.getElementById(
   () => {
 
     moveComic(
-      readingDirection ===
-        "rtl"
-        ? "prev"
-        : "next"
+      "next"
     );
 
   }
 );
-
 
 document.addEventListener(
   "keydown",
@@ -3067,10 +3368,7 @@ document.addEventListener(
       event.preventDefault();
 
       moveComic(
-        readingDirection ===
-          "rtl"
-          ? "next"
-          : "prev"
+        "prev"
       );
 
     }
@@ -3084,17 +3382,13 @@ document.addEventListener(
       event.preventDefault();
 
       moveComic(
-        readingDirection ===
-          "rtl"
-          ? "prev"
-          : "next"
+        "next"
       );
 
     }
 
   }
 );
-
 
 document.getElementById(
   "singlePageBtn"
@@ -3122,6 +3416,18 @@ document.getElementById(
     pageMode =
       2;
 
+
+    /*
+      2페이지 보기 시작점을
+      0, 2, 4, 6...으로 정렬
+    */
+
+    currentPage =
+      Math.floor(
+        currentPage / 2
+      ) * 2;
+
+
     updatePageModeButtons();
 
     renderComicPages();
@@ -3148,28 +3454,6 @@ function updatePageModeButtons() {
   );
 
 }
-
-
-document.getElementById(
-  "directionSelect"
-).addEventListener(
-  "change",
-  event => {
-
-    readingDirection =
-      event.target.value;
-
-
-    localStorage.setItem(
-      "comicReadingDirection",
-      readingDirection
-    );
-
-
-    renderComicPages();
-
-  }
-);
 
 
 document.getElementById(
@@ -3519,6 +3803,171 @@ document.getElementById(
   }
 );
 
+/* =========================================================
+   이미지 WebP 자동 변환
+========================================================= */
+
+async function convertImageToWebP(
+  file,
+  {
+    quality = 0.85,
+    maxWidth = 2200,
+    maxHeight = null
+  } = {}
+) {
+
+  if (!file) {
+    throw new Error(
+      "변환할 이미지가 없습니다."
+    );
+  }
+
+
+  const bitmap =
+    await createImageBitmap(
+      file
+    );
+
+
+  let width =
+    bitmap.width;
+
+  let height =
+    bitmap.height;
+
+
+  let scale =
+    1;
+
+
+  if (
+    maxWidth &&
+    width > maxWidth
+  ) {
+
+    scale =
+      Math.min(
+        scale,
+        maxWidth / width
+      );
+  }
+
+
+  if (
+    maxHeight &&
+    height > maxHeight
+  ) {
+
+    scale =
+      Math.min(
+        scale,
+        maxHeight / height
+      );
+  }
+
+
+  if (
+    scale < 1
+  ) {
+
+    width =
+      Math.round(
+        width * scale
+      );
+
+    height =
+      Math.round(
+        height * scale
+      );
+  }
+
+
+  const canvas =
+    document.createElement(
+      "canvas"
+    );
+
+
+  canvas.width =
+    width;
+
+  canvas.height =
+    height;
+
+
+  const context =
+    canvas.getContext(
+      "2d",
+      {
+        alpha: true
+      }
+    );
+
+
+  context.drawImage(
+    bitmap,
+    0,
+    0,
+    width,
+    height
+  );
+
+
+  bitmap.close();
+
+
+  const blob =
+    await new Promise(
+      (
+        resolve,
+        reject
+      ) => {
+
+        canvas.toBlob(
+          result => {
+
+            if (!result) {
+
+              reject(
+                new Error(
+                  "WebP 변환에 실패했습니다."
+                )
+              );
+
+              return;
+            }
+
+
+            resolve(
+              result
+            );
+
+          },
+          "image/webp",
+          quality
+        );
+
+      }
+    );
+
+
+  const originalBaseName =
+    file.name
+      .replace(
+        /\.[^.]+$/,
+        ""
+      );
+
+
+  return new File(
+    [blob],
+    `${originalBaseName}.webp`,
+    {
+      type:
+        "image/webp"
+    }
+  );
+}
 
 /* =========================================================
    업로드 실행
@@ -3696,15 +4145,25 @@ async function uploadNewWork() {
     );
 
 
-    const thumbnailPath =
-      `works/${workReference.id}/thumbnail/${Date.now()}_${cleanFilename(thumbnail.name)}`;
+const convertedThumbnail =
+  await convertImageToWebP(
+    thumbnail,
+    {
+      quality: 0.82,
+      maxWidth: 1200
+    }
+  );
 
 
-    const thumbnailUrl =
-      await uploadFile(
-        thumbnail,
-        thumbnailPath,
-        progress => {
+const thumbnailPath =
+  `works/${workReference.id}/thumbnail/${Date.now()}_thumbnail.webp`;
+
+
+const thumbnailUrl =
+  await uploadFile(
+    convertedThumbnail,
+    thumbnailPath,
+    progress => {
 
           const percent =
             5 +
@@ -4012,7 +4471,7 @@ async function uploadNewChapter() {
 
 
 /* =========================================================
-   여러 이미지 업로드
+   여러 이미지 WebP 변환 + 업로드
 ========================================================= */
 
 async function uploadChapterImages(
@@ -4023,13 +4482,17 @@ async function uploadChapterImages(
   endPercent
 ) {
 
-  const urls =
-    [];
-
+  const urls = [];
 
   const range =
-    endPercent -
-    startPercent;
+    endPercent - startPercent;
+
+  /*
+    같은 회차를 수정할 때
+    브라우저/R2 캐시와 파일명 충돌을 피하기 위한 ID
+  */
+  const batchId =
+    Date.now();
 
 
   for (
@@ -4038,50 +4501,78 @@ async function uploadChapterImages(
     i++
   ) {
 
-    const file =
+    const originalFile =
       files[i];
 
 
+    /* =========================
+       1. WebP 변환
+    ========================= */
+
+    const convertedFile =
+      await convertImageToWebP(
+        originalFile,
+        {
+          quality: 0.85,
+          maxWidth: 2200
+        }
+      );
+
+
+    console.log(
+      `[WebP ${i + 1}/${files.length}]`,
+      originalFile.name,
+      originalFile.type,
+      "→",
+      convertedFile.name,
+      convertedFile.type
+    );
+
+
+    /* =========================
+       2. 파일명 생성
+       확장자는 무조건 .webp
+    ========================= */
+
     const number =
-      String(
-        i + 1
-      ).padStart(
-        4,
-        "0"
-      );
-
-
-    const extension =
-      getExtension(
-        file.name
-      );
+      String(i + 1)
+        .padStart(
+          4,
+          "0"
+        );
 
 
     const filename =
-      extension
-        ? `${number}.${extension}`
-        : number;
+      `${batchId}_${number}.webp`;
 
 
     const path =
-      `works/${workId}/chapters/${chapterId}/${batchId}_${filename}`;
+      `works/${workId}/chapters/${chapterId}/${filename}`;
 
+
+    /* =========================
+       3. 진행률 계산
+    ========================= */
 
     const fileStart =
       startPercent +
       range *
-      (i / files.length);
+        (i / files.length);
 
 
     const fileEnd =
       startPercent +
       range *
-      ((i + 1) / files.length);
+        ((i + 1) / files.length);
 
+
+    /* =========================
+       4. 변환된 WebP 업로드
+    ========================= */
 
     const url =
       await uploadFile(
-        file,
+        convertedFile,
         path,
         progress => {
 
@@ -4099,7 +4590,7 @@ async function uploadChapterImages(
 
           setProgress(
             percent,
-            `이미지 업로드 중 · ${i + 1} / ${files.length}`
+            `WebP 업로드 중 · ${i + 1} / ${files.length}`
           );
 
         }
@@ -4114,7 +4605,6 @@ async function uploadChapterImages(
 
 
   return urls;
-
 }
 
 
@@ -5009,3 +5499,5 @@ function firebaseErrorMessage(
   );
 
 }
+
+console.log("newImageUrls =", newImageUrls);

@@ -147,6 +147,22 @@
         ← 목록
       </button>
 
+ <div class="detail-action-buttons">
+
+    <button
+      id="editWorkBtn"
+      class="secondary-button"
+    >
+      ✏️ 작품 수정
+    </button>
+
+    <button
+      id="deleteWorkBtn"
+      class="danger-button"
+    >
+      🗑 작품 삭제
+    </button>
+
       <button
         id="addChapterBtn"
         class="primary-button"
@@ -155,6 +171,7 @@
       </button>
 
     </div>
+</div>
 
 
     <div class="detail-header">
@@ -403,6 +420,195 @@
 </main>
 
 
+
+<!-- =========================
+     작품 수정 모달
+========================== -->
+
+<div
+  id="editWorkModal"
+  class="modal hidden"
+>
+
+  <div class="modal-overlay"></div>
+
+  <div class="modal-card">
+
+    <div class="modal-header">
+
+      <h2>
+        작품 수정
+      </h2>
+
+      <button
+        id="editWorkCloseBtn"
+        class="modal-close"
+      >
+        ×
+      </button>
+
+    </div>
+
+
+    <form id="editWorkForm">
+
+      <div class="form-section">
+
+        <label>
+          작품 제목
+
+          <input
+            id="editWorkTitle"
+            type="text"
+            maxlength="100"
+            required
+          >
+        </label>
+
+
+        <label>
+          올린 사람
+
+          <input
+            id="editWorkUploader"
+            type="text"
+            maxlength="40"
+            required
+          >
+        </label>
+
+
+        <label>
+          작품 설명
+
+          <textarea
+            id="editWorkDescription"
+            rows="5"
+            maxlength="1000"
+          ></textarea>
+        </label>
+
+        <label>
+          썸네일 변경
+
+          <input
+            id="editWorkThumbnail"
+            type="file"
+            accept="image/*"
+          >
+        </label>
+
+        <div class="upload-tip">
+          새 이미지를 선택하지 않으면 기존 썸네일을 유지합니다.
+        </div>
+
+        <div
+          id="editWorkThumbnailInfo"
+          class="selected-file-info"
+        ></div>
+
+      </div>
+
+
+      <div
+        id="editWorkError"
+        class="upload-error"
+      >
+      </div>
+
+
+      <button
+        id="editWorkSaveBtn"
+        type="submit"
+        class="primary-button submit-button"
+      >
+        수정 저장
+      </button>
+
+    </form>
+
+  </div>
+
+</div>
+
+<!-- =========================
+     회차 / 권 수정 모달
+========================== -->
+
+<div id="editChapterModal" class="modal hidden">
+  <div class="modal-overlay"></div>
+
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2 id="editChapterModalTitle">회차 수정</h2>
+
+      <button
+        id="editChapterCloseBtn"
+        class="modal-close"
+        type="button"
+      >
+        ×
+      </button>
+    </div>
+
+    <form id="editChapterForm">
+      <div class="form-section">
+        <label>
+          <span id="editChapterNumberLabel">회차 번호</span>
+
+          <input
+            id="editChapterNumber"
+            type="number"
+            min="1"
+            step="1"
+            required
+          >
+        </label>
+
+        <label>
+          <span id="editChapterTitleLabel">회차 제목</span>
+
+          <input
+            id="editChapterTitle"
+            type="text"
+            maxlength="100"
+          >
+        </label>
+
+        <label>
+          <span id="editChapterImagesLabel">본문 이미지 변경</span>
+
+          <input
+            id="editChapterImages"
+            type="file"
+            accept="image/*"
+            multiple
+          >
+        </label>
+
+        <div class="upload-tip">
+          새 이미지를 선택하지 않으면 기존 본문 이미지를 유지합니다.
+          새 이미지를 선택하면 선택한 이미지 전체로 교체됩니다.
+        </div>
+
+        <div
+          id="editChapterImagesInfo"
+          class="selected-file-info"
+        ></div>
+      </div>
+
+      <div id="editChapterError" class="upload-error"></div>
+
+      <button
+        id="editChapterSaveBtn"
+        type="submit"
+        class="primary-button submit-button"
+      >
+        수정 저장
+      </button>
+    </form>
+  </div>
+</div>
 
 <!-- =========================
      업로드 모달

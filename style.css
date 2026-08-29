@@ -1054,3 +1054,93 @@ textarea {
   }
 
 }
+
+.detail-action-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.danger-button {
+  padding: 10px 15px;
+
+  border: 0;
+  border-radius: 10px;
+
+  background: #e53935;
+  color: white;
+
+  font-weight: 700;
+}
+
+.danger-button:hover {
+  background: #c62828;
+}
+
+/* =========================
+   회차 / 권 관리 버튼
+========================= */
+
+.chapter-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+
+  flex-shrink: 0;
+
+  gap: 7px;
+}
+
+.chapter-action-button {
+  padding: 7px 11px;
+
+  border: 0;
+  border-radius: 8px;
+
+  background: var(--surface-2);
+  color: var(--text);
+
+  font-size: 12px;
+  font-weight: 700;
+
+  white-space: nowrap;
+}
+
+.chapter-action-button:hover {
+  opacity: 0.8;
+}
+
+.chapter-action-button.delete {
+  background: var(--danger);
+  color: #ffffff;
+}
+
+
+/* =========================
+   모바일 회차 버튼
+========================= */
+
+@media (max-width: 720px) {
+
+  .chapter-item {
+    align-items: flex-start;
+  }
+
+  .chapter-actions {
+    flex-wrap: wrap;
+
+    max-width: 145px;
+  }
+
+  .continue-badge {
+    width: 100%;
+
+    text-align: right;
+  }
+
+  .chapter-action-button {
+    padding: 6px 9px;
+
+    font-size: 11px;
+  }
+}

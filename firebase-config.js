@@ -6,6 +6,7 @@ import {
   getFirestore
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
 
+
 const firebaseConfig = {
   apiKey: "AIzaSyAoihL9o8PbsQIZDeU_13G0hUBd0qIqq8I",
   authDomain: "comic-viewer-4a317.firebaseapp.com",
@@ -16,6 +17,7 @@ const firebaseConfig = {
   appId: "1:875475306792:web:cca5be3bd23ed9a3a4681d",
   measurementId: "G-MQXQFTWFN9"
 };
+
 
 const app =
   initializeApp(firebaseConfig);

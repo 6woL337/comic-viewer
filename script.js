@@ -9,6 +9,7 @@ import {
   doc,
   setDoc,
   updateDoc,
+  deleteDoc,
   getDocs,
   query,
   orderBy,
@@ -16,11 +17,13 @@ import {
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js";
 
-const R2_CONFIG = {
 
+const R2_CONFIG = {
   workerUrl: "https://comic-upload.w82733037.workers.dev"
 };
 
+const batchId =
+  Date.now();
 
 /* =========================================================
    상태
@@ -39,6 +42,9 @@ let selectedWork =
 
 let currentChapters =
   [];
+
+let editingChapterId =
+  null;
 
 let uploadMode =
   "new";
@@ -180,11 +186,6 @@ function startWorksListener() {
 
       renderWorks();
 
-
-      /*
-        상세 페이지를 보고 있는 동안
-        작품 정보가 변경되었으면 갱신
-      */
 
       if (
         selectedWork
@@ -824,6 +825,441 @@ function renderDetailInfo() {
 }
 
 
+/* =========================================================
+   작품 수정 모달
+========================================================= */
+
+const editWorkModal =
+  document.getElementById(
+    "editWorkModal"
+  );
+
+const editWorkForm =
+  document.getElementById(
+    "editWorkForm"
+  );
+
+const editWorkTitle =
+  document.getElementById(
+    "editWorkTitle"
+  );
+
+const editWorkUploader =
+  document.getElementById(
+    "editWorkUploader"
+  );
+
+const editWorkDescription =
+  document.getElementById(
+    "editWorkDescription"
+  );
+
+const editWorkError =
+  document.getElementById(
+    "editWorkError"
+  );
+
+const editWorkSaveBtn =
+  document.getElementById(
+    "editWorkSaveBtn"
+  );
+
+  const editWorkThumbnail =
+  document.getElementById(
+    "editWorkThumbnail"
+  );
+
+const editWorkThumbnailInfo =
+  document.getElementById(
+    "editWorkThumbnailInfo"
+  );
+
+editWorkThumbnail.addEventListener(
+  "change",
+  event => {
+
+    const file =
+      event.target.files[0];
+
+    editWorkThumbnailInfo.textContent =
+      file
+        ? `새 썸네일: ${file.name}`
+        : "기존 썸네일 유지";
+  }
+);
+
+document
+  .getElementById(
+    "editWorkBtn"
+  )
+  .addEventListener(
+    "click",
+    openEditWorkModal
+  );
+
+
+document
+  .getElementById(
+    "editWorkCloseBtn"
+  )
+  .addEventListener(
+    "click",
+    closeEditWorkModal
+  );
+
+
+editWorkModal
+  .querySelector(
+    ".modal-overlay"
+  )
+  .addEventListener(
+    "click",
+    closeEditWorkModal
+  );
+
+
+function openEditWorkModal() {
+
+  if (
+    !selectedWork
+  ) {
+    return;
+  }
+
+
+  editWorkTitle.value =
+    selectedWork.title ||
+    "";
+
+
+  editWorkUploader.value =
+    selectedWork.uploader ||
+    "";
+
+
+  editWorkDescription.value =
+    selectedWork.description ||
+    "";
+
+
+  editWorkError.textContent =
+    "";
+
+editWorkThumbnail.value =
+  "";
+
+editWorkThumbnailInfo.textContent =
+  "기존 썸네일 유지";
+
+
+  editWorkModal.classList.remove(
+    "hidden"
+  );
+
+
+  document.body.classList.add(
+    "modal-open"
+  );
+
+
+  setTimeout(
+    () => {
+
+      editWorkTitle.focus();
+
+    },
+    50
+  );
+
+}
+
+
+function closeEditWorkModal() {
+
+  if (
+    editWorkSaveBtn.disabled
+  ) {
+    return;
+  }
+
+
+  editWorkModal.classList.add(
+    "hidden"
+  );
+
+
+  document.body.classList.remove(
+    "modal-open"
+  );
+
+}
+
+
+/* =========================================================
+   작품 수정 저장
+========================================================= */
+
+editWorkForm.addEventListener(
+  "submit",
+  async event => {
+
+    event.preventDefault();
+
+
+    if (
+      !selectedWork
+    ) {
+      return;
+    }
+
+
+    const title =
+      editWorkTitle.value.trim();
+
+
+    const uploader =
+      editWorkUploader.value.trim();
+
+
+    const description =
+      editWorkDescription.value.trim();
+
+
+    const newThumbnail =
+      editWorkThumbnail.files[0] ||
+      null;
+
+
+    if (
+      !title
+    ) {
+
+      editWorkError.textContent =
+        "작품 제목을 입력해주세요.";
+
+      editWorkTitle.focus();
+
+      return;
+    }
+
+
+    if (
+      !uploader
+    ) {
+
+      editWorkError.textContent =
+        "올린 사람을 입력해주세요.";
+
+      editWorkUploader.focus();
+
+      return;
+    }
+
+
+    editWorkSaveBtn.disabled =
+      true;
+
+
+    editWorkSaveBtn.textContent =
+      "저장 중...";
+
+
+    editWorkError.textContent =
+      "";
+
+
+    let newThumbnailUrl =
+      selectedWork.thumbnailUrl ||
+      "";
+
+
+    let uploadedThumbnailUrl =
+      null;
+
+
+    try {
+
+      /* =========================
+         새 썸네일 업로드
+      ========================= */
+
+      if (
+        newThumbnail
+      ) {
+
+        editWorkSaveBtn.textContent =
+          "썸네일 업로드 중...";
+
+
+        const thumbnailPath =
+          `works/${selectedWork.id}/thumbnail/${Date.now()}_${cleanFilename(newThumbnail.name)}`;
+
+
+        uploadedThumbnailUrl =
+          await uploadFile(
+            newThumbnail,
+            thumbnailPath
+          );
+
+
+        newThumbnailUrl =
+          uploadedThumbnailUrl;
+      }
+
+
+      /* =========================
+         Firestore 수정
+      ========================= */
+
+      editWorkSaveBtn.textContent =
+        "정보 저장 중...";
+
+
+      const oldThumbnailUrl =
+        selectedWork.thumbnailUrl ||
+        "";
+
+
+      await updateDoc(
+        doc(
+          db,
+          "works",
+          selectedWork.id
+        ),
+        {
+          title,
+          uploader,
+          description,
+
+          thumbnailUrl:
+            newThumbnailUrl,
+
+          updatedAt:
+            serverTimestamp()
+        }
+      );
+
+
+      selectedWork = {
+        ...selectedWork,
+        title,
+        uploader,
+        description,
+
+        thumbnailUrl:
+          newThumbnailUrl
+      };
+
+
+      renderDetailInfo();
+
+
+      /* =========================
+         기존 썸네일 삭제
+      ========================= */
+
+      if (
+        newThumbnail &&
+        oldThumbnailUrl &&
+        oldThumbnailUrl !==
+          newThumbnailUrl
+      ) {
+
+        try {
+
+          await deleteR2File(
+            oldThumbnailUrl
+          );
+
+        } catch (
+          deleteError
+        ) {
+
+          console.warn(
+            "기존 썸네일 삭제 실패:",
+            deleteError
+          );
+        }
+      }
+
+
+      editWorkSaveBtn.disabled =
+        false;
+
+
+      editWorkSaveBtn.textContent =
+        "수정 저장";
+
+
+      closeEditWorkModal();
+
+
+      alert(
+        "작품 정보가 수정되었습니다."
+      );
+
+
+    } catch (
+      error
+    ) {
+
+      console.error(
+        "작품 수정 실패:",
+        error
+      );
+
+
+      /*
+        새 썸네일은 업로드됐지만
+        Firestore 저장이 실패한 경우
+        새 파일 정리
+      */
+
+      if (
+        uploadedThumbnailUrl &&
+        uploadedThumbnailUrl !==
+          selectedWork.thumbnailUrl
+      ) {
+
+        try {
+
+          await deleteR2File(
+            uploadedThumbnailUrl
+          );
+
+        } catch (
+          cleanupError
+        ) {
+
+          console.warn(
+            "실패한 새 썸네일 정리 실패:",
+            cleanupError
+          );
+        }
+      }
+
+
+      editWorkError.textContent =
+        firebaseErrorMessage(
+          error
+        );
+
+
+      editWorkSaveBtn.disabled =
+        false;
+
+
+      editWorkSaveBtn.textContent =
+        "수정 저장";
+    }
+  }
+);
+
+
+/* =========================================================
+   회차 불러오기
+========================================================= */
+
 async function loadChapters() {
 
   if (
@@ -906,20 +1342,16 @@ function renderChapterList() {
       "chapterList"
     );
 
-
   const count =
     document.getElementById(
       "chapterCount"
     );
 
-
   container.innerHTML =
     "";
 
-
   count.textContent =
     `${currentChapters.length}개`;
-
 
   if (
     currentChapters.length === 0
@@ -927,13 +1359,15 @@ function renderChapterList() {
 
     container.innerHTML =
       `<div class="status-message">
-        등록된 회차가 없습니다.
+        등록된 ${
+          selectedWork?.type === "comic"
+            ? "권"
+            : "회차"
+        }가 없습니다.
        </div>`;
 
     return;
-
   }
-
 
   currentChapters.forEach(
     (
@@ -946,10 +1380,13 @@ function renderChapterList() {
           "div"
         );
 
-
       item.className =
         "chapter-item";
 
+
+      /* =========================
+         왼쪽 회차 정보
+      ========================= */
 
       const main =
         document.createElement(
@@ -1005,6 +1442,21 @@ function renderChapterList() {
       );
 
 
+      /* =========================
+         오른쪽 영역
+      ========================= */
+
+      const right =
+        document.createElement(
+          "div"
+        );
+
+      right.className =
+        "chapter-actions";
+
+
+      /* 이어보기 표시 */
+
       const progress =
         getProgress(
           selectedWork.id,
@@ -1039,23 +1491,94 @@ function renderChapterList() {
 
           badge.textContent =
             "이어보기";
-
         }
 
 
-        item.append(
-          main,
+        right.appendChild(
           badge
         );
-
-      } else {
-
-        item.append(
-          main
-        );
-
       }
 
+
+      /* =========================
+         수정 버튼
+      ========================= */
+
+      const editButton =
+        document.createElement(
+          "button"
+        );
+
+      editButton.type =
+        "button";
+
+      editButton.className =
+        "chapter-action-button";
+
+      editButton.textContent =
+        "수정";
+
+
+      editButton.addEventListener(
+        "click",
+        event => {
+
+          event.stopPropagation();
+
+          openEditChapterModal(
+            chapter
+          );
+        }
+      );
+
+
+      /* =========================
+         삭제 버튼
+      ========================= */
+
+      const deleteButton =
+        document.createElement(
+          "button"
+        );
+
+      deleteButton.type =
+        "button";
+
+      deleteButton.className =
+        "chapter-action-button delete";
+
+      deleteButton.textContent =
+        "삭제";
+
+
+      deleteButton.addEventListener(
+        "click",
+        async event => {
+
+          event.stopPropagation();
+
+          await deleteChapter(
+            chapter
+          );
+        }
+      );
+
+
+      right.append(
+        editButton,
+        deleteButton
+      );
+
+
+      item.append(
+        main,
+        right
+      );
+
+
+      /* =========================
+         회차 클릭 → 뷰어
+      ========================= */
 
       item.addEventListener(
         "click",
@@ -1075,9 +1598,7 @@ function renderChapterList() {
             openComicVolume(
               index
             );
-
           }
-
         }
       );
 
@@ -1085,12 +1606,691 @@ function renderChapterList() {
       container.appendChild(
         item
       );
-
     }
   );
-
 }
 
+
+/* =========================================================
+   회차 / 권 수정 모달
+========================================================= */
+
+const editChapterModal =
+  document.getElementById(
+    "editChapterModal"
+  );
+
+const editChapterForm =
+  document.getElementById(
+    "editChapterForm"
+  );
+
+const editChapterNumber =
+  document.getElementById(
+    "editChapterNumber"
+  );
+
+const editChapterTitle =
+  document.getElementById(
+    "editChapterTitle"
+  );
+
+const editChapterError =
+  document.getElementById(
+    "editChapterError"
+  );
+
+const editChapterSaveBtn =
+  document.getElementById(
+    "editChapterSaveBtn"
+  );
+
+  const editChapterImages =
+  document.getElementById(
+    "editChapterImages"
+  );
+
+const editChapterImagesInfo =
+  document.getElementById(
+    "editChapterImagesInfo"
+  );
+
+editChapterImages.addEventListener(
+  "change",
+  event => {
+
+    const files =
+      Array.from(
+        event.target.files
+      );
+
+
+    editChapterImagesInfo.textContent =
+      files.length > 0
+        ? `새 본문 이미지 ${files.length}장 선택됨`
+        : "기존 본문 이미지 유지";
+  }
+);
+
+function openEditChapterModal(
+  chapter
+) {
+
+  if (
+    !selectedWork ||
+    !chapter
+  ) {
+    return;
+  }
+
+
+  editingChapterId =
+    chapter.id;
+
+
+  const isWebtoon =
+    selectedWork.type ===
+    "webtoon";
+
+
+  document.getElementById(
+    "editChapterModalTitle"
+  ).textContent =
+    isWebtoon
+      ? "회차 수정"
+      : "권 수정";
+
+
+  document.getElementById(
+    "editChapterNumberLabel"
+  ).textContent =
+    isWebtoon
+      ? "회차 번호"
+      : "권 번호";
+
+
+  document.getElementById(
+    "editChapterTitleLabel"
+  ).textContent =
+    isWebtoon
+      ? "회차 제목"
+      : "권 제목";
+
+
+  editChapterNumber.value =
+    chapter.number;
+
+
+  editChapterTitle.value =
+    chapter.title || "";
+
+
+  editChapterError.textContent =
+    "";
+
+    editChapterImages.value =
+  "";
+
+editChapterImagesInfo.textContent =
+  `기존 본문 이미지 ${
+    chapter.images?.length || 0
+  }장 유지`;
+
+  editChapterModal.classList.remove(
+    "hidden"
+  );
+
+
+  document.body.classList.add(
+    "modal-open"
+  );
+
+
+  setTimeout(
+    () => {
+
+      editChapterNumber.focus();
+      editChapterNumber.select();
+
+    },
+    50
+  );
+}
+
+
+function closeEditChapterModal() {
+
+  if (
+    editChapterSaveBtn.disabled
+  ) {
+    return;
+  }
+
+
+  editingChapterId =
+    null;
+
+
+  editChapterModal.classList.add(
+    "hidden"
+  );
+
+
+  document.body.classList.remove(
+    "modal-open"
+  );
+}
+
+
+document
+  .getElementById(
+    "editChapterCloseBtn"
+  )
+  .addEventListener(
+    "click",
+    closeEditChapterModal
+  );
+
+
+editChapterModal
+  .querySelector(
+    ".modal-overlay"
+  )
+  .addEventListener(
+    "click",
+    closeEditChapterModal
+  );
+
+
+editChapterForm.addEventListener(
+  "submit",
+  async event => {
+
+    event.preventDefault();
+
+
+    if (
+      !selectedWork ||
+      !editingChapterId
+    ) {
+      return;
+    }
+
+
+    const number =
+      Number(
+        editChapterNumber.value
+      );
+
+
+    const title =
+      editChapterTitle.value.trim();
+
+
+    const newImageFiles =
+      sortImageFiles(
+        editChapterImages.files
+      );
+
+
+    if (
+      !Number.isInteger(number) ||
+      number < 1
+    ) {
+
+      editChapterError.textContent =
+        "번호를 올바르게 입력해주세요.";
+
+      editChapterNumber.focus();
+
+      return;
+    }
+
+
+    const duplicate =
+      currentChapters.some(
+        chapter =>
+          chapter.id !==
+            editingChapterId &&
+          Number(
+            chapter.number
+          ) === number
+      );
+
+
+    if (
+      duplicate
+    ) {
+
+      const unit =
+        selectedWork.type ===
+          "webtoon"
+          ? "회차"
+          : "권";
+
+
+      editChapterError.textContent =
+        `${unit} 번호 ${number}은 이미 존재합니다.`;
+
+      editChapterNumber.focus();
+
+      return;
+    }
+
+
+    const chapter =
+      currentChapters.find(
+        item =>
+          item.id ===
+          editingChapterId
+      );
+
+
+    if (
+      !chapter
+    ) {
+
+      editChapterError.textContent =
+        "수정할 회차를 찾을 수 없습니다.";
+
+      return;
+    }
+
+
+    editChapterSaveBtn.disabled =
+      true;
+
+
+    editChapterSaveBtn.textContent =
+      "저장 중...";
+
+
+    editChapterError.textContent =
+      "";
+
+
+    const oldImages =
+      [...(
+        chapter.images ||
+        []
+      )];
+
+
+    let newImageUrls =
+      oldImages;
+
+
+    let uploadedNewImages =
+      [];
+
+
+    try {
+
+      /* =========================
+         새 본문 이미지 업로드
+      ========================= */
+
+      if (
+        newImageFiles.length > 0
+      ) {
+
+        editChapterSaveBtn.textContent =
+          "새 이미지 업로드 중...";
+
+
+        newImageUrls =
+          await uploadChapterImages(
+            selectedWork.id,
+            editingChapterId,
+            newImageFiles,
+            0,
+            100
+          );
+
+
+        uploadedNewImages =
+          [...newImageUrls];
+      }
+
+
+      /* =========================
+         Firestore 회차 수정
+      ========================= */
+
+      editChapterSaveBtn.textContent =
+        "정보 저장 중...";
+
+
+      await updateDoc(
+        doc(
+          db,
+          "works",
+          selectedWork.id,
+          "chapters",
+          editingChapterId
+        ),
+        {
+          number,
+          title,
+
+          images:
+            newImageUrls,
+
+          imageCount:
+            newImageUrls.length
+        }
+      );
+
+
+      await updateDoc(
+        doc(
+          db,
+          "works",
+          selectedWork.id
+        ),
+        {
+          updatedAt:
+            serverTimestamp()
+        }
+      );
+
+
+      /* =========================
+         기존 이미지 삭제
+      ========================= */
+
+      if (
+        newImageFiles.length > 0
+      ) {
+
+        editChapterSaveBtn.textContent =
+          "기존 이미지 정리 중...";
+
+
+        for (
+          const imageUrl
+          of oldImages
+        ) {
+
+          /*
+            같은 URL은 삭제하지 않음
+          */
+
+          if (
+            !newImageUrls.includes(
+              imageUrl
+            )
+          ) {
+
+            try {
+
+              await deleteR2File(
+                imageUrl
+              );
+
+            } catch (
+              deleteError
+            ) {
+
+              console.warn(
+                "기존 이미지 삭제 실패:",
+                deleteError
+              );
+            }
+          }
+        }
+
+
+        /*
+          이미지가 바뀌었으므로
+          이전 읽기 위치 초기화
+        */
+
+        localStorage.removeItem(
+          progressKey(
+            selectedWork.id,
+            editingChapterId
+          )
+        );
+      }
+
+
+      editChapterSaveBtn.disabled =
+        false;
+
+
+      editChapterSaveBtn.textContent =
+        "수정 저장";
+
+
+      closeEditChapterModal();
+
+
+      await loadChapters();
+
+
+      alert(
+        selectedWork.type ===
+          "webtoon"
+          ? "회차가 수정되었습니다."
+          : "권이 수정되었습니다."
+      );
+
+
+    } catch (
+      error
+    ) {
+
+      console.error(
+        "회차/권 수정 실패:",
+        error
+      );
+
+
+      /*
+        새 이미지 업로드는 됐지만
+        Firestore 업데이트가 실패한 경우
+        새로 올린 이미지 정리
+      */
+
+      if (
+        uploadedNewImages.length > 0
+      ) {
+
+        for (
+          const imageUrl
+          of uploadedNewImages
+        ) {
+
+          try {
+
+            await deleteR2File(
+              imageUrl
+            );
+
+          } catch (
+            cleanupError
+          ) {
+
+            console.warn(
+              "실패한 새 이미지 정리 실패:",
+              cleanupError
+            );
+          }
+        }
+      }
+
+
+      editChapterError.textContent =
+        firebaseErrorMessage(
+          error
+        );
+
+
+      editChapterSaveBtn.disabled =
+        false;
+
+
+      editChapterSaveBtn.textContent =
+        "수정 저장";
+    }
+  }
+);
+
+
+/* =========================================================
+   회차 / 권 삭제
+========================================================= */
+
+async function deleteChapter(
+  chapter
+) {
+
+  if (
+    !selectedWork ||
+    !chapter
+  ) {
+    return;
+  }
+
+
+  const unit =
+    selectedWork.type ===
+      "webtoon"
+      ? "화"
+      : "권";
+
+
+  const label =
+    `${chapter.number}${unit}` +
+    (
+      chapter.title
+        ? ` · ${chapter.title}`
+        : ""
+    );
+
+
+  const confirmed =
+    confirm(
+      `"${label}"을 정말 삭제하시겠습니까?\n\n` +
+      `본문 이미지와 Firestore 데이터가 함께 삭제됩니다.\n` +
+      `이 작업은 되돌릴 수 없습니다.`
+    );
+
+
+  if (
+    !confirmed
+  ) {
+    return;
+  }
+
+
+  try {
+
+    const workId =
+      selectedWork.id;
+
+
+    const chapterId =
+      chapter.id;
+
+
+    const images =
+      chapter.images || [];
+
+
+    console.log(
+      "회차/권 삭제 시작:",
+      chapterId
+    );
+
+
+    /*
+      1. R2 이미지 삭제
+    */
+
+    for (
+      const imageUrl
+      of images
+    ) {
+
+      await deleteR2File(
+        imageUrl
+      );
+    }
+
+
+    /*
+      2. Firestore chapter 삭제
+    */
+
+    await deleteDoc(
+      doc(
+        db,
+        "works",
+        workId,
+        "chapters",
+        chapterId
+      )
+    );
+
+
+    /*
+      3. 작품 수정 시간 갱신
+    */
+
+    await updateDoc(
+      doc(
+        db,
+        "works",
+        workId
+      ),
+      {
+        updatedAt:
+          serverTimestamp()
+      }
+    );
+
+
+    /*
+      4. 해당 회차 읽기 기록 삭제
+    */
+
+    localStorage.removeItem(
+      `comicViewerProgress:${workId}:${chapterId}`
+    );
+
+
+    /*
+      5. 화면 갱신
+    */
+
+    await loadChapters();
+
+
+    alert(
+      `${label}이 삭제되었습니다.`
+    );
+
+
+  } catch (
+    error
+  ) {
+
+    console.error(
+      "회차/권 삭제 실패:",
+      error
+    );
+
+
+    alert(
+      "삭제 중 오류가 발생했습니다.\n\n" +
+      firebaseErrorMessage(
+        error
+      )
+    );
+  }
+}
 
 /* =========================================================
    목록/상세 뒤로
@@ -1500,7 +2700,7 @@ function renderComicPages() {
   if (
     pageMode === 2 &&
     currentPage + 1 <
-      pages.length
+    pages.length
   ) {
 
     indexes.push(
@@ -1643,6 +2843,7 @@ function moveComic(
     ) {
 
       currentVolumeIndex--;
+
 
       const previous =
         currentChapters[
@@ -1808,17 +3009,9 @@ function clampPage(
 }
 
 
-/*
-  실제 화면상의 왼쪽/오른쪽 버튼
-
-  RTL:
-  왼쪽 = 다음
-  오른쪽 = 이전
-
-  LTR:
-  왼쪽 = 이전
-  오른쪽 = 다음
-*/
+/* =========================================================
+   만화 버튼
+========================================================= */
 
 document.getElementById(
   "comicLeftBtn"
@@ -1853,8 +3046,6 @@ document.getElementById(
   }
 );
 
-
-/* 키보드 */
 
 document.addEventListener(
   "keydown",
@@ -1905,8 +3096,6 @@ document.addEventListener(
 );
 
 
-/* 1장 */
-
 document.getElementById(
   "singlePageBtn"
 ).addEventListener(
@@ -1923,8 +3112,6 @@ document.getElementById(
   }
 );
 
-
-/* 2장 */
 
 document.getElementById(
   "doublePageBtn"
@@ -1963,8 +3150,6 @@ function updatePageModeButtons() {
 }
 
 
-/* 읽기 방향 */
-
 document.getElementById(
   "directionSelect"
 ).addEventListener(
@@ -1987,8 +3172,6 @@ document.getElementById(
 );
 
 
-/* 슬라이더 */
-
 document.getElementById(
   "pageSlider"
 ).addEventListener(
@@ -2005,8 +3188,6 @@ document.getElementById(
   }
 );
 
-
-/* 전체화면 */
 
 document.getElementById(
   "fullscreenBtn"
@@ -2316,8 +3497,6 @@ function updateUploadLabels(
 }
 
 
-/* 파일 선택 표시 */
-
 document.getElementById(
   "uploadImages"
 ).addEventListener(
@@ -2342,7 +3521,7 @@ document.getElementById(
 
 
 /* =========================================================
-   실제 업로드
+   업로드 실행
 ========================================================= */
 
 uploadForm.addEventListener(
@@ -2367,8 +3546,6 @@ uploadForm.addEventListener(
   }
 );
 
-
-/* 새 작품 */
 
 async function uploadNewWork() {
 
@@ -2489,11 +3666,6 @@ async function uploadNewWork() {
     );
 
 
-    /*
-      Firestore 작품 문서를 먼저 만든다.
-      자동 ID를 Storage 경로에도 사용한다.
-    */
-
     const workReference =
       await addDoc(
         collection(
@@ -2517,10 +3689,6 @@ async function uploadNewWork() {
         }
       );
 
-
-    /*
-      표지 업로드
-    */
 
     setProgress(
       5,
@@ -2551,10 +3719,6 @@ async function uploadNewWork() {
       );
 
 
-    /*
-      Firestore에 표지 URL 기록
-    */
-
     await updateDoc(
       workReference,
       {
@@ -2562,10 +3726,6 @@ async function uploadNewWork() {
       }
     );
 
-
-    /*
-      첫 회차 문서 ID를 미리 생성
-    */
 
     const chapterReference =
       doc(
@@ -2578,10 +3738,6 @@ async function uploadNewWork() {
       );
 
 
-    /*
-      본문 이미지
-    */
-
     const imageUrls =
       await uploadChapterImages(
         workReference.id,
@@ -2591,10 +3747,6 @@ async function uploadNewWork() {
         95
       );
 
-
-    /*
-      회차 정보 저장
-    */
 
     await setDoc(
       chapterReference,
@@ -2661,8 +3813,6 @@ async function uploadNewWork() {
 
 }
 
-
-/* 기존 작품에 회차 추가 */
 
 async function uploadNewChapter() {
 
@@ -2862,7 +4012,7 @@ async function uploadNewChapter() {
 
 
 /* =========================================================
-   여러 이미지 순차 업로드
+   여러 이미지 업로드
 ========================================================= */
 
 async function uploadChapterImages(
@@ -2914,7 +4064,7 @@ async function uploadChapterImages(
 
 
     const path =
-      `works/${workId}/chapters/${chapterId}/${filename}`;
+      `works/${workId}/chapters/${chapterId}/${batchId}_${filename}`;
 
 
     const fileStart =
@@ -2969,100 +4119,12 @@ async function uploadChapterImages(
 
 
 /* =========================================================
-   Storage 파일 1개 업로드
+   R2 업로드
 ========================================================= */
 
-async function uploadFile(file, path, onProgress) {
-
-  return new Promise((resolve, reject) => {
-
-    const uploadUrl =
-      `${R2_CONFIG.workerUrl}/upload?path=${encodeURIComponent(path)}`;
-
-    console.log("R2 업로드 요청:", uploadUrl);
-
-    const xhr = new XMLHttpRequest();
-
-    xhr.open("POST", uploadUrl);
-
-    xhr.setRequestHeader(
-      "Content-Type",
-      file.type || "application/octet-stream"
-    );
-
-    xhr.upload.addEventListener("progress", event => {
-
-      if (event.lengthComputable && onProgress) {
-
-        const percent =
-          (event.loaded / event.total) * 100;
-
-        onProgress(percent);
-      }
-
-    });
-
-    xhr.addEventListener("load", () => {
-
-      console.log("Worker 상태:", xhr.status);
-      console.log("Worker 응답:", xhr.responseText);
-
-      if (xhr.status < 200 || xhr.status >= 300) {
-
-        reject(
-          new Error(
-            `R2 업로드 실패 (${xhr.status}): ${xhr.responseText}`
-          )
-        );
-
-        return;
-      }
-
-      try {
-
-        const result =
-          JSON.parse(xhr.responseText);
-
-        if (!result.publicUrl) {
-
-          throw new Error(
-            "Worker 응답에 publicUrl이 없습니다."
-          );
-        }
-
-        resolve(result.publicUrl);
-
-      } catch (error) {
-
-        reject(
-          new Error(
-            `Worker가 올바른 JSON을 반환하지 않았습니다: ${xhr.responseText}`
-          )
-        );
-
-      }
-
-    });
-
-    xhr.addEventListener("error", () => {
-
-      reject(
-        new Error(
-          "Cloudflare Worker 연결에 실패했습니다."
-        )
-      );
-
-    });
-
-    xhr.send(file);
-
-  });
-
-}
-
-function uploadToPresignedUrl(
+async function uploadFile(
   file,
-  uploadUrl,
+  path,
   onProgress
 ) {
 
@@ -3072,12 +4134,22 @@ function uploadToPresignedUrl(
       reject
     ) => {
 
+      const uploadUrl =
+        `${R2_CONFIG.workerUrl}/upload?path=${encodeURIComponent(path)}`;
+
+
+      console.log(
+        "R2 업로드 요청:",
+        uploadUrl
+      );
+
+
       const xhr =
         new XMLHttpRequest();
 
 
       xhr.open(
-        "PUT",
+        "POST",
         uploadUrl
       );
 
@@ -3119,18 +4191,64 @@ function uploadToPresignedUrl(
         "load",
         () => {
 
+          console.log(
+            "Worker 상태:",
+            xhr.status
+          );
+
+          console.log(
+            "Worker 응답:",
+            xhr.responseText
+          );
+
+
           if (
-            xhr.status >= 200 &&
-            xhr.status < 300
+            xhr.status < 200 ||
+            xhr.status >= 300
           ) {
-
-            resolve();
-
-          } else {
 
             reject(
               new Error(
-                `R2 업로드 실패 (${xhr.status})`
+                `R2 업로드 실패 (${xhr.status}): ${xhr.responseText}`
+              )
+            );
+
+            return;
+
+          }
+
+
+          try {
+
+            const result =
+              JSON.parse(
+                xhr.responseText
+              );
+
+
+            if (
+              !result.publicUrl
+            ) {
+
+              throw new Error(
+                "Worker 응답에 publicUrl이 없습니다."
+              );
+
+            }
+
+
+            resolve(
+              result.publicUrl
+            );
+
+
+          } catch (
+            error
+          ) {
+
+            reject(
+              new Error(
+                `Worker가 올바른 JSON을 반환하지 않았습니다: ${xhr.responseText}`
               )
             );
 
@@ -3146,7 +4264,7 @@ function uploadToPresignedUrl(
 
           reject(
             new Error(
-              "R2 업로드 중 네트워크 오류가 발생했습니다."
+              "Cloudflare Worker 연결에 실패했습니다."
             )
           );
 
@@ -3162,6 +4280,315 @@ function uploadToPresignedUrl(
   );
 
 }
+
+
+/* =========================================================
+   R2 삭제
+========================================================= */
+
+function getR2PathFromUrl(
+  imageUrl
+) {
+
+  if (
+    !imageUrl
+  ) {
+    return null;
+  }
+
+
+  try {
+
+    const url =
+      new URL(
+        imageUrl
+      );
+
+
+    return url.pathname
+      .replace(
+        /^\/+/,
+        ""
+      );
+
+
+  } catch (
+    error
+  ) {
+
+    console.error(
+      "R2 URL 분석 실패:",
+      imageUrl,
+      error
+    );
+
+
+    return null;
+
+  }
+
+}
+
+
+async function deleteR2File(
+  imageUrl
+) {
+
+  const path =
+    getR2PathFromUrl(
+      imageUrl
+    );
+
+
+  if (
+    !path
+  ) {
+    return;
+  }
+
+
+  const response =
+    await fetch(
+      `${R2_CONFIG.workerUrl}/delete?path=${encodeURIComponent(path)}`,
+      {
+        method:
+          "DELETE"
+      }
+    );
+
+
+  const responseText =
+    await response.text();
+
+
+  if (
+    !response.ok
+  ) {
+
+    throw new Error(
+      `R2 삭제 실패 (${response.status}): ${responseText}`
+    );
+
+  }
+
+
+  let result =
+    null;
+
+
+  try {
+
+    result =
+      JSON.parse(
+        responseText
+      );
+
+  } catch {
+
+    result = {
+      success: true,
+      raw: responseText
+    };
+
+  }
+
+
+  console.log(
+    "R2 삭제 완료:",
+    result
+  );
+
+}
+
+
+/* =========================================================
+   작품 삭제
+========================================================= */
+
+document
+  .getElementById(
+    "deleteWorkBtn"
+  )
+  .addEventListener(
+    "click",
+    deleteCurrentWork
+  );
+
+
+async function deleteCurrentWork() {
+
+  if (
+    !selectedWork
+  ) {
+    return;
+  }
+
+
+  const title =
+    selectedWork.title ||
+    "제목 없음";
+
+
+  const confirmed =
+    confirm(
+      `"${title}" 작품을 정말 삭제하시겠습니까?\n\n` +
+      `표지, 모든 회차 이미지, Firestore 데이터가 함께 삭제됩니다.\n` +
+      `이 작업은 되돌릴 수 없습니다.`
+    );
+
+
+  if (
+    !confirmed
+  ) {
+    return;
+  }
+
+
+  try {
+
+    const workId =
+      selectedWork.id;
+
+
+    console.log(
+      "작품 삭제 시작:",
+      workId
+    );
+
+
+    const chaptersSnapshot =
+      await getDocs(
+        collection(
+          db,
+          "works",
+          workId,
+          "chapters"
+        )
+      );
+
+
+    for (
+      const chapterDoc
+      of chaptersSnapshot.docs
+    ) {
+
+      const chapter =
+        chapterDoc.data();
+
+
+      const images =
+        chapter.images ||
+        [];
+
+
+      for (
+        const imageUrl
+        of images
+      ) {
+
+        await deleteR2File(
+          imageUrl
+        );
+
+      }
+
+
+      await deleteDoc(
+        doc(
+          db,
+          "works",
+          workId,
+          "chapters",
+          chapterDoc.id
+        )
+      );
+
+    }
+
+
+    if (
+      selectedWork.thumbnailUrl
+    ) {
+
+      await deleteR2File(
+        selectedWork.thumbnailUrl
+      );
+
+    }
+
+
+    await deleteDoc(
+      doc(
+        db,
+        "works",
+        workId
+      )
+    );
+
+
+    for (
+      let i =
+        localStorage.length - 1;
+      i >= 0;
+      i--
+    ) {
+
+      const key =
+        localStorage.key(
+          i
+        );
+
+
+      if (
+        key &&
+        key.startsWith(
+          `comicViewerProgress:${workId}:`
+        )
+      ) {
+
+        localStorage.removeItem(
+          key
+        );
+
+      }
+
+    }
+
+
+    selectedWork =
+      null;
+
+    currentChapters =
+      [];
+
+
+    alert(
+      "작품이 삭제되었습니다."
+    );
+
+
+    showLibrary();
+
+
+  } catch (
+    error
+  ) {
+
+    console.error(
+      "작품 삭제 실패:",
+      error
+    );
+
+
+    alert(
+      "작품 삭제 중 오류가 발생했습니다.\n\n" +
+      error.message
+    );
+
+  }
+
+}
+
 
 /* =========================================================
    업로드 진행 UI
@@ -3320,7 +4747,9 @@ function saveProgress(
       workId,
       chapterId
     ),
-    String(value)
+    String(
+      value
+    )
   );
 
 }
@@ -3384,7 +4813,9 @@ darkModeBtn.addEventListener(
 
     const enabled =
       document.body.classList
-        .contains("dark");
+        .contains(
+          "dark"
+        );
 
 
     localStorage.setItem(
@@ -3403,7 +4834,9 @@ function updateDarkModeIcon() {
 
   darkModeBtn.textContent =
     document.body.classList
-      .contains("dark")
+      .contains(
+        "dark"
+      )
       ? "☀️"
       : "🌙";
 
@@ -3411,7 +4844,7 @@ function updateDarkModeIcon() {
 
 
 /* =========================================================
-   기타 함수
+   기타
 ========================================================= */
 
 function sortImageFiles(
@@ -3421,13 +4854,17 @@ function sortImageFiles(
   return Array.from(
     fileList
   ).sort(
-    (a, b) =>
+    (
+      a,
+      b
+    ) =>
       a.name.localeCompare(
         b.name,
         undefined,
         {
           numeric: true,
-          sensitivity: "base"
+          sensitivity:
+            "base"
         }
       )
   );
@@ -3548,7 +4985,8 @@ function firebaseErrorMessage(
 ) {
 
   const code =
-    error?.code || "";
+    error?.code ||
+    "";
 
 
   if (
@@ -3560,18 +4998,7 @@ function firebaseErrorMessage(
     )
   ) {
 
-    return "Firebase 권한이 없습니다. Firestore / Storage 보안 규칙을 확인해주세요.";
-
-  }
-
-
-  if (
-    code.includes(
-      "storage/unauthorized"
-    )
-  ) {
-
-    return "Storage 업로드 권한이 없습니다.";
+    return "Firebase 권한이 없습니다. Firestore 보안 규칙을 확인해주세요.";
 
   }
 

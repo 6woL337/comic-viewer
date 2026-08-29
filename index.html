@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>Comic Viewer</title>
+
+  <link rel="stylesheet" href="./style.css">
+</head>
+
+<body>
+
+<header class="top-header">
+
+  <div
+    class="logo"
+    id="homeLogo"
+  >
+    COMIC VIEWER
+  </div>
+
+  <div class="header-buttons">
+
+    <button
+      id="uploadOpenBtn"
+      class="primary-button"
+    >
+      + 업로드
+    </button>
+
+    <button
+      id="darkModeBtn"
+      class="icon-button"
+      title="다크모드"
+    >
+      🌙
+    </button>
+
+  </div>
+
+</header>
+
+
+<main>
+
+  <!-- =========================
+       라이브러리
+  ========================== -->
+
+  <section id="libraryPage">
+
+    <div class="type-tabs">
+
+      <button
+        class="type-tab active"
+        data-type="webtoon"
+      >
+        웹툰
+      </button>
+
+      <button
+        class="type-tab"
+        data-type="comic"
+      >
+        만화
+      </button>
+
+    </div>
+
+
+    <div class="library-tools">
+
+      <input
+        id="searchInput"
+        type="search"
+        placeholder="작품 제목 또는 업로더 검색"
+      >
+
+      <select id="sortSelect">
+
+        <option value="latest">
+          최근 등록순
+        </option>
+
+        <option value="title">
+          제목순
+        </option>
+
+      </select>
+
+    </div>
+
+
+    <section class="uploader-section">
+
+      <div class="section-heading">
+        올린 사람
+      </div>
+
+      <div
+        id="uploaderFilters"
+        class="uploader-filters"
+      >
+      </div>
+
+    </section>
+
+
+    <div
+      id="libraryStatus"
+      class="status-message"
+    >
+      작품을 불러오는 중...
+    </div>
+
+
+    <div
+      id="worksGrid"
+      class="works-grid"
+    >
+    </div>
+
+  </section>
+
+
+
+  <!-- =========================
+       작품 상세
+  ========================== -->
+
+  <section
+    id="detailPage"
+    class="hidden"
+  >
+
+    <div class="detail-top">
+
+      <button
+        id="detailBackBtn"
+        class="secondary-button"
+      >
+        ← 목록
+      </button>
+
+      <button
+        id="addChapterBtn"
+        class="primary-button"
+      >
+        + 회차 추가
+      </button>
+
+    </div>
+
+
+    <div class="detail-header">
+
+      <img
+        id="detailThumbnail"
+        class="detail-thumbnail"
+        src=""
+        alt=""
+      >
+
+
+      <div class="detail-info">
+
+        <div
+          id="detailType"
+          class="type-badge"
+        >
+        </div>
+
+        <h1 id="detailTitle"></h1>
+
+        <div
+          id="detailUploader"
+          class="detail-uploader"
+        >
+        </div>
+
+        <p id="detailDescription"></p>
+
+      </div>
+
+    </div>
+
+
+    <div class="chapter-title-row">
+
+      <h2 id="chapterSectionTitle">
+        회차
+      </h2>
+
+      <span id="chapterCount"></span>
+
+    </div>
+
+
+    <div
+      id="chapterStatus"
+      class="status-message"
+    >
+    </div>
+
+
+    <div
+      id="chapterList"
+      class="chapter-list"
+    >
+    </div>
+
+  </section>
+
+
+
+  <!-- =========================
+       웹툰 뷰어
+  ========================== -->
+
+  <section
+    id="webtoonViewer"
+    class="viewer-page hidden"
+  >
+
+    <div class="viewer-header">
+
+      <button
+        id="webtoonBackBtn"
+        class="viewer-icon-button"
+      >
+        ←
+      </button>
+
+      <div class="viewer-title">
+
+        <strong id="webtoonViewerTitle"></strong>
+
+        <span id="webtoonViewerChapter"></span>
+
+      </div>
+
+      <button
+        id="webtoonTopBtn"
+        class="viewer-icon-button"
+      >
+        ↑
+      </button>
+
+    </div>
+
+
+    <div
+      id="webtoonImages"
+      class="webtoon-images"
+    >
+    </div>
+
+
+    <div class="webtoon-navigation">
+
+      <button
+        id="prevEpisodeBtn"
+        class="viewer-nav-button"
+      >
+        ← 이전화
+      </button>
+
+      <button
+        id="nextEpisodeBtn"
+        class="viewer-nav-button"
+      >
+        다음화 →
+      </button>
+
+    </div>
+
+  </section>
+
+
+
+  <!-- =========================
+       만화 뷰어
+  ========================== -->
+
+  <section
+    id="comicViewer"
+    class="viewer-page comic-viewer hidden"
+  >
+
+    <div class="viewer-header">
+
+      <button
+        id="comicBackBtn"
+        class="viewer-icon-button"
+      >
+        ←
+      </button>
+
+      <div class="viewer-title">
+
+        <strong id="comicViewerTitle"></strong>
+
+        <span id="comicViewerVolume"></span>
+
+      </div>
+
+      <button
+        id="fullscreenBtn"
+        class="viewer-icon-button"
+      >
+        ⛶
+      </button>
+
+    </div>
+
+
+    <div class="comic-toolbar">
+
+      <div class="toolbar-group">
+
+        <button
+          id="singlePageBtn"
+          class="toolbar-button active"
+        >
+          1장
+        </button>
+
+        <button
+          id="doublePageBtn"
+          class="toolbar-button"
+        >
+          2장
+        </button>
+
+      </div>
+
+
+      <select id="directionSelect">
+
+        <option value="rtl">
+          오른쪽 → 왼쪽
+        </option>
+
+        <option value="ltr">
+          왼쪽 → 오른쪽
+        </option>
+
+      </select>
+
+    </div>
+
+
+    <div class="comic-stage">
+
+      <button
+        id="comicLeftBtn"
+        class="comic-arrow left"
+      >
+        ‹
+      </button>
+
+
+      <div
+        id="comicPages"
+        class="comic-pages"
+      >
+      </div>
+
+
+      <button
+        id="comicRightBtn"
+        class="comic-arrow right"
+      >
+        ›
+      </button>
+
+    </div>
+
+
+    <div
+      id="pageIndicator"
+      class="page-indicator"
+    >
+    </div>
+
+
+    <input
+      id="pageSlider"
+      class="page-slider"
+      type="range"
+      min="0"
+      max="0"
+      value="0"
+    >
+
+  </section>
+
+</main>
+
+
+
+<!-- =========================
+     업로드 모달
+========================== -->
+
+<div
+  id="uploadModal"
+  class="modal hidden"
+>
+
+  <div class="modal-overlay"></div>
+
+
+  <div class="modal-card">
+
+    <div class="modal-header">
+
+      <h2 id="uploadModalTitle">
+        작품 업로드
+      </h2>
+
+      <button
+        id="uploadCloseBtn"
+        class="modal-close"
+      >
+        ×
+      </button>
+
+    </div>
+
+
+    <form id="uploadForm">
+
+      <!-- 새 작품일 때만 표시 -->
+
+      <div
+        id="newWorkFields"
+        class="form-section"
+      >
+
+        <label>
+          종류
+
+          <select
+            id="uploadType"
+            required
+          >
+
+            <option value="webtoon">
+              웹툰
+            </option>
+
+            <option value="comic">
+              만화
+            </option>
+
+          </select>
+
+        </label>
+
+
+        <label>
+          작품 제목
+
+          <input
+            id="uploadTitle"
+            type="text"
+            maxlength="100"
+            placeholder="작품 제목"
+          >
+        </label>
+
+
+        <label>
+          올린 사람
+
+          <input
+            id="uploadUploader"
+            type="text"
+            maxlength="40"
+            placeholder="닉네임"
+          >
+        </label>
+
+
+        <label>
+          작품 설명
+
+          <textarea
+            id="uploadDescription"
+            rows="4"
+            maxlength="1000"
+            placeholder="작품에 대한 설명"
+          ></textarea>
+        </label>
+
+
+        <label>
+          표지 이미지
+
+          <input
+            id="uploadThumbnail"
+            type="file"
+            accept="image/*"
+          >
+        </label>
+
+      </div>
+
+
+      <!-- 회차/권 -->
+
+      <div class="form-section">
+
+        <label>
+          <span id="chapterNumberLabel">
+            회차 번호
+          </span>
+
+          <input
+            id="uploadChapterNumber"
+            type="number"
+            min="1"
+            step="1"
+            value="1"
+            required
+          >
+        </label>
+
+
+        <label>
+          <span id="chapterTitleLabel">
+            회차 제목
+          </span>
+
+          <input
+            id="uploadChapterTitle"
+            type="text"
+            maxlength="100"
+            placeholder="예: 첫 번째 이야기"
+          >
+        </label>
+
+
+        <label>
+          본문 이미지
+
+          <input
+            id="uploadImages"
+            type="file"
+            accept="image/*"
+            multiple
+            required
+          >
+        </label>
+
+
+        <div class="upload-tip">
+          파일 이름이 001.jpg, 002.jpg, 003.jpg처럼 되어 있으면
+          숫자 순서대로 자동 정렬됩니다.
+        </div>
+
+      </div>
+
+
+      <div
+        id="selectedFileInfo"
+        class="selected-file-info"
+      >
+      </div>
+
+
+      <div
+        id="uploadProgressArea"
+        class="upload-progress-area hidden"
+      >
+
+        <div class="progress-row">
+
+          <span id="uploadProgressText">
+            준비 중...
+          </span>
+
+          <span id="uploadPercent">
+            0%
+          </span>
+
+        </div>
+
+
+        <div class="progress-track">
+
+          <div
+            id="uploadProgressBar"
+            class="progress-bar"
+          >
+          </div>
+
+        </div>
+
+      </div>
+
+
+      <div
+        id="uploadError"
+        class="upload-error"
+      >
+      </div>
+
+
+      <button
+        id="uploadSubmitBtn"
+        type="submit"
+        class="primary-button submit-button"
+      >
+        업로드
+      </button>
+
+    </form>
+
+  </div>
+
+</div>
+
+
+
+<script
+  type="module"
+  src="./script.js"
+></script>
+
+</body>
+</html>

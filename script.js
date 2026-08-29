@@ -18,7 +18,7 @@ import {
 
 const R2_CONFIG = {
 
-  workerUrl: "https://comic-upload.w82733037.workers.dev"
+  workerUrl: "https://comic-upload.w82733037.workers.dev/"
 };
 
 

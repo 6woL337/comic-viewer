@@ -2972,78 +2972,91 @@ async function uploadChapterImages(
    Storage 파일 1개 업로드
 ========================================================= */
 
-async function uploadFile(
-  file,
-  path,
-  onProgress
-) {
+async function uploadFile(file, path, onProgress) {
 
-  /*
-    1.
-    Worker에 presigned URL 요청
-  */
+  return new Promise((resolve, reject) => {
 
-  const signResponse =
-    await fetch(
-      `${R2_CONFIG.workerUrl}/sign-upload`,
-      {
-        method: "POST",
+    const uploadUrl =
+      `${R2_CONFIG.workerUrl}/upload?path=${encodeURIComponent(path)}`;
 
-        headers: {
-          "Content-Type":
-            "application/json"
-        },
+    console.log("R2 업로드 요청:", uploadUrl);
 
-        body:
-          JSON.stringify({
-            path,
-            contentType:
-              file.type ||
-              "application/octet-stream"
-          })
+    const xhr = new XMLHttpRequest();
+
+    xhr.open("POST", uploadUrl);
+
+    xhr.setRequestHeader(
+      "Content-Type",
+      file.type || "application/octet-stream"
+    );
+
+    xhr.upload.addEventListener("progress", event => {
+
+      if (event.lengthComputable && onProgress) {
+
+        const percent =
+          (event.loaded / event.total) * 100;
+
+        onProgress(percent);
       }
-    );
 
+    });
 
-  if (
-    !signResponse.ok
-  ) {
+    xhr.addEventListener("load", () => {
 
-    const message =
-      await signResponse.text();
+      console.log("Worker 상태:", xhr.status);
+      console.log("Worker 응답:", xhr.responseText);
 
-    throw new Error(
-      `업로드 URL 생성 실패: ${message}`
-    );
+      if (xhr.status < 200 || xhr.status >= 300) {
 
-  }
+        reject(
+          new Error(
+            `R2 업로드 실패 (${xhr.status}): ${xhr.responseText}`
+          )
+        );
 
+        return;
+      }
 
-  const {
-    uploadUrl,
-    publicUrl
-  } =
-    await signResponse.json();
+      try {
 
+        const result =
+          JSON.parse(xhr.responseText);
 
-  /*
-    2.
-    R2에 실제 파일 업로드
-  */
+        if (!result.publicUrl) {
 
-  await uploadToPresignedUrl(
-    file,
-    uploadUrl,
-    onProgress
-  );
+          throw new Error(
+            "Worker 응답에 publicUrl이 없습니다."
+          );
+        }
 
+        resolve(result.publicUrl);
 
-  /*
-    3.
-    표시할 공개 URL 반환
-  */
+      } catch (error) {
 
-  return publicUrl;
+        reject(
+          new Error(
+            `Worker가 올바른 JSON을 반환하지 않았습니다: ${xhr.responseText}`
+          )
+        );
+
+      }
+
+    });
+
+    xhr.addEventListener("error", () => {
+
+      reject(
+        new Error(
+          "Cloudflare Worker 연결에 실패했습니다."
+        )
+      );
+
+    });
+
+    xhr.send(file);
+
+  });
 
 }
 

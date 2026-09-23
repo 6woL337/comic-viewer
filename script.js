@@ -3807,166 +3807,103 @@ document.getElementById(
    이미지 WebP 자동 변환
 ========================================================= */
 
+// 본문은 작은 캔버스에서 조각별로 변환해 긴 이미지의 하단 손실을 방지합니다.
+const IMAGE_PART_MAX_HEIGHT = 4096;
+const IMAGE_CANVAS_MAX_PIXELS = 4 * 1024 * 1024;
+
+async function encodeWebPRegion(bitmap, sourceY, sourceHeight, width, height, name, quality) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  try {
+    const context = canvas.getContext("2d", { alpha: true });
+    if (!context) {
+      throw new Error("이미지 변환용 캔버스를 만들지 못했습니다.");
+    }
+    context.drawImage(
+      bitmap, 0, sourceY, bitmap.width, sourceHeight,
+      0, 0, width, height
+    );
+
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(result => {
+        if (!result || result.type !== "image/webp") {
+          reject(new Error("WebP 변환에 실패했습니다. WebP를 지원하는 브라우저를 사용해주세요."));
+          return;
+        }
+        resolve(result);
+      }, "image/webp", quality);
+    });
+
+    return new File([blob], name, { type: "image/webp" });
+  } finally {
+    // 업로드할 때는 압축 파일만 유지하고 캔버스 메모리는 바로 반환합니다.
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+}
+
+// 표지는 한 장으로 유지하되 전체 이미지가 안전한 크기 안에 들어오도록 축소합니다.
 async function convertImageToWebP(
   file,
-  {
-    quality = 0.85,
-    maxWidth = 2200,
-    maxHeight = null
-  } = {}
+  { quality = 0.85, maxWidth = 2200, maxHeight = null } = {}
 ) {
-
-  if (!file) {
-    throw new Error(
-      "변환할 이미지가 없습니다."
+  if (!file) throw new Error("변환할 이미지가 없습니다.");
+  const bitmap = await createImageBitmap(file);
+  try {
+    if (!bitmap.width || !bitmap.height) throw new Error("이미지 크기가 올바르지 않습니다.");
+    const scale = Math.min(
+      1,
+      (maxWidth || 2200) / bitmap.width,
+      2200 / bitmap.width,
+      (maxHeight || IMAGE_PART_MAX_HEIGHT) / bitmap.height,
+      IMAGE_PART_MAX_HEIGHT / bitmap.height,
+      Math.sqrt(IMAGE_CANVAS_MAX_PIXELS / (bitmap.width * bitmap.height))
     );
+    return await encodeWebPRegion(
+      bitmap, 0, bitmap.height,
+      Math.max(1, Math.floor(bitmap.width * scale)),
+      Math.max(1, Math.floor(bitmap.height * scale)),
+      file.name.replace(/\.[^.]+$/, "") + ".webp", quality
+    );
+  } finally {
+    bitmap.close();
   }
+}
 
-
-  const bitmap =
-    await createImageBitmap(
-      file
+async function* convertImageToWebPParts(file) {
+  if (!file) throw new Error("변환할 이미지가 없습니다.");
+  const bitmap = await createImageBitmap(file);
+  try {
+    if (!bitmap.width || !bitmap.height) throw new Error("이미지 크기가 올바르지 않습니다.");
+    const width = Math.min(bitmap.width, 2200);
+    const scale = width / bitmap.width;
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const partHeight = Math.min(
+      IMAGE_PART_MAX_HEIGHT,
+      Math.floor(IMAGE_CANVAS_MAX_PIXELS / width)
     );
+    const partCount = Math.ceil(height / partHeight);
+    const baseName = file.name.replace(/\.[^.]+$/, "");
 
-
-  let width =
-    bitmap.width;
-
-  let height =
-    bitmap.height;
-
-
-  let scale =
-    1;
-
-
-  if (
-    maxWidth &&
-    width > maxWidth
-  ) {
-
-    scale =
-      Math.min(
-        scale,
-        maxWidth / width
+    for (let partIndex = 0; partIndex < partCount; partIndex++) {
+      const top = partIndex * partHeight;
+      const bottom = Math.min(height, top + partHeight);
+      // 동일한 경계 계산을 사용해 조각 사이의 누락/중복을 막고 마지막 원본 행까지 포함합니다.
+      const sourceTop = top * bitmap.height / height;
+      const sourceBottom = bottom === height
+        ? bitmap.height
+        : bottom * bitmap.height / height;
+      const part = await encodeWebPRegion(
+        bitmap, sourceTop, sourceBottom - sourceTop, width, bottom - top,
+        baseName + "_" + String(partIndex + 1).padStart(4, "0") + ".webp", 0.85
       );
-  }
-
-
-  if (
-    maxHeight &&
-    height > maxHeight
-  ) {
-
-    scale =
-      Math.min(
-        scale,
-        maxHeight / height
-      );
-  }
-
-
-  if (
-    scale < 1
-  ) {
-
-    width =
-      Math.round(
-        width * scale
-      );
-
-    height =
-      Math.round(
-        height * scale
-      );
-  }
-
-
-  const canvas =
-    document.createElement(
-      "canvas"
-    );
-
-
-  canvas.width =
-    width;
-
-  canvas.height =
-    height;
-
-
-  const context =
-    canvas.getContext(
-      "2d",
-      {
-        alpha: true
-      }
-    );
-
-
-  context.drawImage(
-    bitmap,
-    0,
-    0,
-    width,
-    height
-  );
-
-
-  bitmap.close();
-
-
-  const blob =
-    await new Promise(
-      (
-        resolve,
-        reject
-      ) => {
-
-        canvas.toBlob(
-          result => {
-
-            if (!result) {
-
-              reject(
-                new Error(
-                  "WebP 변환에 실패했습니다."
-                )
-              );
-
-              return;
-            }
-
-
-            resolve(
-              result
-            );
-
-          },
-          "image/webp",
-          quality
-        );
-
-      }
-    );
-
-
-  const originalBaseName =
-    file.name
-      .replace(
-        /\.[^.]+$/,
-        ""
-      );
-
-
-  return new File(
-    [blob],
-    `${originalBaseName}.webp`,
-    {
-      type:
-        "image/webp"
+      yield { file: part, partIndex, partCount };
     }
-  );
+  } finally {
+    bitmap.close();
+  }
 }
 
 /* =========================================================
@@ -4475,134 +4412,36 @@ async function uploadNewChapter() {
 ========================================================= */
 
 async function uploadChapterImages(
-  workId,
-  chapterId,
-  files,
-  startPercent,
-  endPercent
+  workId, chapterId, files, startPercent, endPercent
 ) {
-
   const urls = [];
+  const range = endPercent - startPercent;
+  const batchId = crypto.randomUUID();
 
-  const range =
-    endPercent - startPercent;
-
-  /*
-    같은 회차를 수정할 때
-    브라우저/R2 캐시와 파일명 충돌을 피하기 위한 ID
-  */
-  const batchId =
-    Date.now();
-
-
-  for (
-    let i = 0;
-    i < files.length;
-    i++
-  ) {
-
-    const originalFile =
-      files[i];
-
-
-    /* =========================
-       1. WebP 변환
-    ========================= */
-
-    const convertedFile =
-      await convertImageToWebP(
-        originalFile,
-        {
-          quality: 0.85,
-          maxWidth: 2200
-        }
-      );
-
-
-    console.log(
-      `[WebP ${i + 1}/${files.length}]`,
-      originalFile.name,
-      originalFile.type,
-      "→",
-      convertedFile.name,
-      convertedFile.type
+  for (let i = 0; i < files.length; i++) {
+    setProgress(
+      startPercent + range * i / files.length,
+      `이미지 분할·변환 중 · ${i + 1} / ${files.length}`
     );
 
-
-    /* =========================
-       2. 파일명 생성
-       확장자는 무조건 .webp
-    ========================= */
-
-    const number =
-      String(i + 1)
-        .padStart(
-          4,
-          "0"
+    // 한 조각씩 변환하고 업로드하므로 모든 조각을 메모리에 쌓지 않습니다.
+    for await (const { file, partIndex, partCount } of convertImageToWebPParts(files[i])) {
+      const number = String(i + 1).padStart(4, "0");
+      const partNumber = String(partIndex + 1).padStart(4, "0");
+      const path = `works/${workId}/chapters/${chapterId}/${batchId}_${number}_${partNumber}.webp`;
+      const reportProgress = progress => {
+        const fraction = (partIndex + progress / 100) / partCount;
+        setProgress(
+          startPercent + range * (i + fraction) / files.length,
+          `WebP 업로드 중 · 이미지 ${i + 1} / ${files.length} · 분할 ${partIndex + 1} / ${partCount}`
         );
-
-
-    const filename =
-      `${batchId}_${number}.webp`;
-
-
-    const path =
-      `works/${workId}/chapters/${chapterId}/${filename}`;
-
-
-    /* =========================
-       3. 진행률 계산
-    ========================= */
-
-    const fileStart =
-      startPercent +
-      range *
-        (i / files.length);
-
-
-    const fileEnd =
-      startPercent +
-      range *
-        ((i + 1) / files.length);
-
-
-    /* =========================
-       4. 변환된 WebP 업로드
-    ========================= */
-
-    const url =
-      await uploadFile(
-        convertedFile,
-        path,
-        progress => {
-
-          const percent =
-            fileStart +
-            (
-              fileEnd -
-              fileStart
-            ) *
-            (
-              progress /
-              100
-            );
-
-
-          setProgress(
-            percent,
-            `WebP 업로드 중 · ${i + 1} / ${files.length}`
-          );
-
-        }
-      );
-
-
-    urls.push(
-      url
-    );
-
+      };
+      reportProgress(0);
+      const url = await uploadFile(file, path, reportProgress);
+      urls.push(url);
+      reportProgress(100);
+    }
   }
-
 
   return urls;
 }
@@ -5500,4 +5339,3 @@ function firebaseErrorMessage(
 
 }
 
-console.log("newImageUrls =", newImageUrls);

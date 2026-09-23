@@ -22,6 +22,10 @@ const R2_CONFIG = {
   workerUrl: "https://comic-upload.w82733037.workers.dev"
 };
 
+
+
+
+
 const batchId =
   Date.now();
 
@@ -4165,6 +4169,23 @@ const thumbnailUrl =
     );
 
 
+    await sendDiscordNotification({
+  type: "new_work",
+
+  workTitle: title,
+
+  workType: type,
+
+  uploader: uploader,
+
+  chapterNumber: chapterNumber,
+
+  chapterTitle: chapterTitle,
+
+  thumbnailUrl: thumbnailUrl
+});
+
+
     setProgress(
       100,
       "업로드 완료!"
@@ -4358,6 +4379,29 @@ async function uploadNewChapter() {
           serverTimestamp()
       }
     );
+
+
+    await sendDiscordNotification({
+  type: "new_chapter",
+
+  workTitle:
+    selectedWork.title,
+
+  workType:
+    selectedWork.type,
+
+  uploader:
+    selectedWork.uploader,
+
+  chapterNumber:
+    chapterNumber,
+
+  chapterTitle:
+    chapterTitle,
+
+  thumbnailUrl:
+    selectedWork.thumbnailUrl || ""
+});
 
 
     setProgress(

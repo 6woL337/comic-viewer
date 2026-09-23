@@ -23,7 +23,59 @@ const R2_CONFIG = {
 };
 
 
+async function sendDiscordNotification(data) {
+  try {
 
+    const response = await fetch(
+      `${R2_CONFIG.workerUrl}/discord-notify`,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json"
+        },
+
+        body: JSON.stringify(data)
+      }
+    );
+
+
+    const result =
+      await response.json();
+
+
+    if (
+      !response.ok ||
+      !result.success
+    ) {
+
+      console.warn(
+        "Discord 알림 전송 실패:",
+        result
+      );
+
+      return false;
+    }
+
+
+    console.log(
+      "Discord 알림 전송 성공:",
+      result
+    );
+
+    return true;
+
+
+  } catch (error) {
+
+    console.warn(
+      "Discord 알림 오류:",
+      error
+    );
+
+    return false;
+  }
+}
 
 
 const batchId =

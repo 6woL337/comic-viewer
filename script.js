@@ -69,6 +69,7 @@ try {
   const savedMode = localStorage.getItem('comicViewerPageMode');
   if (['scroll', 'single', 'double-first', 'double-second'].includes(savedMode)) pageMode = savedMode;
 } catch {}
+let searchHistoryActive = false;
 let routeReady = false;
 let routeVersion = 0;
 let chapterLoadVersion = 0;
@@ -365,6 +366,10 @@ document
             "all";
 
 
+          recordRoute(null);
+          document.querySelectorAll('.type-tab').forEach(tab => {
+            tab.setAttribute('aria-pressed', String(tab.dataset.type === currentType));
+          });
           renderUploaderFilters();
 
           renderWorks();
@@ -473,6 +478,7 @@ function createUploaderButton(
       currentUploader =
         value;
 
+      recordRoute(null);
       renderUploaderFilters();
 
       renderWorks();
@@ -725,10 +731,14 @@ function renderWorks() {
 }
 
 
-searchInput.addEventListener(
-  "input",
-  renderWorks
-);
+// The first edit preserves the pre-search entry; later edits replace this search.
+searchInput.addEventListener('input', () => {
+  if (routeReady) {
+    recordRoute(null, null, searchHistoryActive, true);
+    searchHistoryActive = true;
+  }
+  renderWorks();
+});
 
 
 sortSelect.addEventListener(
@@ -2530,7 +2540,7 @@ function openWebtoonEpisode(
     "hidden"
   );
   document.body.classList.add('reading-mode');
-  if (record) recordRoute(selectedWork.id, chapter.id, true);
+  if (record) recordRoute(selectedWork.id, chapter.id);
 
 
   document.getElementById(
@@ -2907,7 +2917,7 @@ function openComicVolume(
     "hidden"
   );
   document.body.classList.add('reading-mode');
-  if (record) recordRoute(selectedWork.id, chapter.id, true);
+  if (record) recordRoute(selectedWork.id, chapter.id);
 
 
   document.getElementById(
@@ -5205,43 +5215,72 @@ function firebaseErrorMessage(
 
 }
 
-// URL/history is the source of truth when returning with browser navigation.
-function routeURL(workId, chapterId) {
+// URL carries the complete navigation context, including the underlying library.
+function libraryRoute() {
+  return {type: currentType, q: searchInput.value, uploader: currentUploader};
+}
+
+function routeURL(workId, chapterId, library = libraryRoute()) {
   const url = new URL(location.href);
-  url.searchParams.delete('work');
-  url.searchParams.delete('chapter');
+  for (const key of ['work', 'chapter', 'type', 'q', 'uploader']) url.searchParams.delete(key);
+  url.searchParams.set('type', library.type);
+  if (library.q) url.searchParams.set('q', library.q);
+  if (library.uploader !== 'all') url.searchParams.set('uploader', library.uploader);
   if (workId) url.searchParams.set('work', workId);
   if (workId && chapterId) url.searchParams.set('chapter', chapterId);
   return url;
 }
 
-function recordRoute(workId, chapterId, replaceChapter = false) {
+function writeRoute(workId, chapterId, depth, replace, library = libraryRoute()) {
+  history[replace ? 'replaceState' : 'pushState'](
+    {...history.state, comicViewer: {workId, chapterId, depth, ...library}},
+    '', routeURL(workId, chapterId, library));
+}
+
+function recordRoute(workId, chapterId, replace = false, searching = false) {
   ++routeVersion;
+  if (!searching) searchHistoryActive = false;
+  if (!routeReady) return;
   const url = routeURL(workId, chapterId);
   if (url.href === location.href) return;
-  const old = history.state?.comicViewer;
-  // Adjacent chapters share one viewer entry, so Back always returns to the list.
-  const replace = replaceChapter && old?.workId === workId && old?.chapterId;
-  const depth = replace ? old.depth : (old?.depth ?? 0) + 1;
-  history[replace ? 'replaceState' : 'pushState'](
-    {comicViewer: {workId, chapterId, depth}}, '', url);
+  const depth = (history.state?.comicViewer?.depth ?? 0) + (replace ? 0 : 1);
+  writeRoute(workId, chapterId, depth, replace);
+}
+
+function restoreLibraryRoute() {
+  const params = new URLSearchParams(location.search);
+  const work = works.find(item => item.id === params.get('work'));
+  const type = params.get('type');
+  currentType = ['webtoon', 'comic'].includes(type) ? type : (work?.type === 'comic' ? 'comic' : 'webtoon');
+  currentUploader = params.get('uploader') || 'all';
+  searchInput.value = params.get('q') || '';
+  document.querySelectorAll('.type-tab').forEach(button => {
+    const active = button.dataset.type === currentType;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  renderUploaderFilters();
+  renderWorks();
 }
 
 function initializeHistory() {
   const params = new URLSearchParams(location.search);
   const workId = params.get('work');
   const chapterId = workId ? params.get('chapter') : null;
+  restoreLibraryRoute();
   if (!history.state?.comicViewer) {
-    // Seed parents once for a direct Discord link; reload must not duplicate them.
-    history.replaceState({comicViewer: {depth: 0}}, '', routeURL(null));
-    if (workId) history.pushState({comicViewer: {workId, depth: 1}}, '', routeURL(workId));
-    if (chapterId) history.pushState({comicViewer: {workId, chapterId, depth: 2}}, '', routeURL(workId, chapterId));
+    // Seed parents once for direct links; reload and Forward reuse existing entries.
+    writeRoute(null, null, 0, true);
+    if (workId) writeRoute(workId, null, 1, false);
+    if (chapterId) writeRoute(workId, chapterId, 2, false);
   }
   applyURLRoute();
 }
 
 async function applyURLRoute() {
   const version = ++routeVersion;
+  searchHistoryActive = false;
+  restoreLibraryRoute();
   const params = new URLSearchParams(location.search);
   const workId = params.get('work');
   const chapterId = params.get('chapter');
@@ -5249,7 +5288,7 @@ async function applyURLRoute() {
   const work = works.find(item => item.id === workId);
   if (!work) {
     showLibrary(false);
-    history.replaceState({comicViewer: {depth: history.state?.comicViewer?.depth ?? 0}}, '', routeURL(null));
+    writeRoute(null, null, history.state?.comicViewer?.depth ?? 0, true);
     libraryStatus.textContent = '링크의 작품을 찾을 수 없습니다.';
     return;
   }
@@ -5258,9 +5297,9 @@ async function applyURLRoute() {
   if (!chapterId) return;
   const index = currentChapters.findIndex(chapter => chapter.id === chapterId);
   if (index < 0) {
-    // Keep a failed-load URL intact for retry; missing chapters fall back to detail.
+    // Preserve a failed-load URL for retry; deleted chapters fall back to detail.
     if (document.getElementById('chapterStatus').textContent) return;
-    history.replaceState({comicViewer: {workId, depth: history.state?.comicViewer?.depth ?? 1}}, '', routeURL(workId));
+    writeRoute(workId, null, history.state?.comicViewer?.depth ?? 1, true);
     document.getElementById('chapterStatus').textContent = '링크의 회차/권을 찾을 수 없습니다.';
     return;
   }
@@ -5268,16 +5307,19 @@ async function applyURLRoute() {
   else openComicVolume(index, false);
 }
 
-window.addEventListener('popstate', () => { if (routeReady) applyURLRoute(); });
+window.addEventListener('popstate', () => {
+  searchHistoryActive = false;
+  if (routeReady) applyURLRoute();
+});
 history.scrollRestoration = 'manual';
 
 function backToDetail() {
-  if (history.state?.comicViewer?.chapterId && history.state.comicViewer.depth > 0) history.back();
+  if (history.state?.comicViewer?.depth > 0) history.back();
   else if (selectedWork) showDetail();
   else showLibrary();
 }
 function backToLibrary() {
-  if (history.state?.comicViewer?.workId && history.state.comicViewer.depth > 0) history.back();
+  if (history.state?.comicViewer?.depth > 0) history.back();
   else showLibrary();
 }
 
@@ -5307,8 +5349,8 @@ for (const viewer of [webtoonViewer, comicViewer]) {
   });
 }
 
-document.getElementById('webtoonHomeBtn').addEventListener('click', backToDetail);
-document.getElementById('comicHomeBtn').addEventListener('click', backToDetail);
+document.getElementById('webtoonHomeBtn').addEventListener('click', () => { if (selectedWork) showDetail(); });
+document.getElementById('comicHomeBtn').addEventListener('click', () => { if (selectedWork) showDetail(); });
 document.getElementById('prevVolumeBtn').addEventListener('click', () => {
   if (currentVolumeIndex > 0) openComicVolume(currentVolumeIndex - 1);
 });

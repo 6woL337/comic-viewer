@@ -1228,3 +1228,9 @@ body.reading-mode #comicViewer { padding-bottom: calc(125px + env(safe-area-inse
 @media (prefers-reduced-motion: reduce) {
   .viewer-header, .viewer-bottom { transition: none; }
 }
+
+/* Keyboard focus remains visible when navigating library controls. */
+.type-tab:focus-visible, .uploader-filter:focus-visible, #searchInput:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}

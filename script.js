@@ -22,6 +22,28 @@ const R2_CONFIG = {
   workerUrl: "https://comic-upload.w82733037.workers.dev"
 };
 
+
+// Restore the existing Worker contract; notification failure must not undo uploads.
+async function sendDiscordNotification(data) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(R2_CONFIG.workerUrl + '/discord-notify', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data), signal: controller.signal
+    });
+    const result = await response.json();
+    if (!response.ok || result.success !== true) throw new Error(result.error || 'Discord 알림 전송 실패');
+    return true;
+  } catch (error) {
+    console.warn('Discord 알림 오류:', error);
+    alert('업로드는 저장되었습니다. Discord 알림 전송에는 실패했습니다. 같은 회차를 다시 올릴 필요는 없습니다.');
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const batchId =
   Date.now();
 
@@ -2114,7 +2136,8 @@ editChapterForm.addEventListener(
             editingChapterId,
             newImageFiles,
             0,
-            100
+            100,
+            selectedWork.type === "webtoon"
           );
 
 
@@ -3918,7 +3941,8 @@ const thumbnailUrl =
         chapterReference.id,
         pageFiles,
         15,
-        95
+        95,
+        type === "webtoon"
       );
 
 
@@ -3942,6 +3966,11 @@ const thumbnailUrl =
       }
     );
 
+
+    await sendDiscordNotification({
+      type: 'new_work', workId: workReference.id, chapterId: chapterReference.id,
+      workTitle: title, workType: type, uploader, chapterNumber, chapterTitle, thumbnailUrl
+    });
 
     setProgress(
       100,
@@ -3997,6 +4026,8 @@ async function uploadNewChapter() {
   }
 
 
+  const workForUpload = {...selectedWork};
+
   const chapterNumber =
     Number(
       document.getElementById(
@@ -4045,7 +4076,7 @@ async function uploadNewChapter() {
 
     showUploadError(
       `${
-        selectedWork.type ===
+        workForUpload.type ===
           "webtoon"
           ? "회차"
           : "권"
@@ -4082,7 +4113,7 @@ async function uploadNewChapter() {
         collection(
           db,
           "works",
-          selectedWork.id,
+          workForUpload.id,
           "chapters"
         )
       );
@@ -4090,11 +4121,12 @@ async function uploadNewChapter() {
 
     const imageUrls =
       await uploadChapterImages(
-        selectedWork.id,
+        workForUpload.id,
         chapterReference.id,
         pageFiles,
         0,
-        95
+        95,
+        workForUpload.type === "webtoon"
       );
 
 
@@ -4129,7 +4161,7 @@ async function uploadNewChapter() {
       doc(
         db,
         "works",
-        selectedWork.id
+        workForUpload.id
       ),
       {
         updatedAt:
@@ -4137,6 +4169,13 @@ async function uploadNewChapter() {
       }
     );
 
+
+    await sendDiscordNotification({
+      type: 'new_chapter', workId: workForUpload.id, chapterId: chapterReference.id,
+      workTitle: workForUpload.title, workType: workForUpload.type,
+      uploader: workForUpload.uploader, chapterNumber, chapterTitle,
+      thumbnailUrl: workForUpload.thumbnailUrl || ''
+    });
 
     setProgress(
       100,
@@ -4189,143 +4228,212 @@ async function uploadNewChapter() {
    여러 이미지 WebP 변환 + 업로드
 ========================================================= */
 
+/* =========================================================
+   긴 웹툰 이미지 자동 분할
+========================================================= */
+
+async function splitWebtoonImage(
+  file,
+  {
+    maxWidth = 2200,
+    splitHeight = 4000,
+    quality = 0.85
+  } = {}
+) {
+  const bitmap = await createImageBitmap(file);
+  const results = [];
+
+  try {
+    const scale = Math.min(
+      1,
+      maxWidth / bitmap.width
+    );
+
+    const outputWidth = Math.max(
+      1,
+      Math.round(bitmap.width * scale)
+    );
+
+    const baseName = file.name.replace(/\.[^.]+$/, "");
+
+    for (
+      let startY = 0, part = 1;
+      startY < bitmap.height;
+      startY += splitHeight, part++
+    ) {
+      const sourceHeight = Math.min(
+        splitHeight,
+        bitmap.height - startY
+      );
+
+      const outputHeight = Math.max(
+        1,
+        Math.round((startY + sourceHeight) * scale) -
+        Math.round(startY * scale)
+      );
+
+      const canvas = document.createElement("canvas");
+
+      canvas.width = outputWidth;
+      canvas.height = outputHeight;
+
+      const ctx = canvas.getContext("2d");
+
+      if (!ctx) {
+        throw new Error("Canvas 생성에 실패했습니다.");
+      }
+
+      ctx.drawImage(
+        bitmap,
+        0,
+        startY,
+        bitmap.width,
+        sourceHeight,
+        0,
+        0,
+        outputWidth,
+        outputHeight
+      );
+
+      const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob(
+          result => {
+            if (result) {
+              resolve(result);
+            } else {
+              reject(new Error("WebP 변환에 실패했습니다."));
+            }
+          },
+          "image/webp",
+          quality
+        );
+      });
+
+      const number = String(part).padStart(3, "0");
+
+      results.push(
+        new File(
+          [blob],
+          `${baseName}_part${number}.webp`,
+          { type: "image/webp" }
+        )
+      );
+
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+
+    return results;
+  } finally {
+    bitmap.close();
+  }
+}
+
 async function uploadChapterImages(
   workId,
   chapterId,
   files,
   startPercent,
-  endPercent
+  endPercent,
+  isWebtoon = true
 ) {
-
   const urls = [];
+  const batchId = Date.now();
+  const range = endPercent - startPercent;
 
-  const range =
-    endPercent - startPercent;
+  try {
+    for (let i = 0; i < files.length; i++) {
+      const originalFile = files[i];
 
-  /*
-    같은 회차를 수정할 때
-    브라우저/R2 캐시와 파일명 충돌을 피하기 위한 ID
-  */
-  const batchId =
-    Date.now();
+      let convertedFiles;
 
+      if (isWebtoon) {
+        convertedFiles = await splitWebtoonImage(
+          originalFile,
+          {
+            maxWidth: 2200,
+            splitHeight: 4000,
+            quality: 0.85
+          }
+        );
+      } else {
+        convertedFiles = [
+          await convertImageToWebP(
+            originalFile,
+            {
+              quality: 0.85,
+              maxWidth: 2200
+            }
+          )
+        ];
+      }
 
-  for (
-    let i = 0;
-    i < files.length;
-    i++
-  ) {
-
-    const originalFile =
-      files[i];
-
-
-    /* =========================
-       1. WebP 변환
-    ========================= */
-
-    const convertedFile =
-      await convertImageToWebP(
-        originalFile,
-        {
-          quality: 0.85,
-          maxWidth: 2200
-        }
+      console.log(
+        `원본 ${i + 1}/${files.length}`,
+        `${convertedFiles.length}개 조각 생성`
       );
 
+      for (
+        let j = 0;
+        j < convertedFiles.length;
+        j++
+      ) {
+        const convertedFile = convertedFiles[j];
 
-    console.log(
-      `[WebP ${i + 1}/${files.length}]`,
-      originalFile.name,
-      originalFile.type,
-      "→",
-      convertedFile.name,
-      convertedFile.type
-    );
+        const fileNumber = String(i + 1).padStart(4, "0");
+        const partNumber = String(j + 1).padStart(3, "0");
 
+        const filename =
+          `${batchId}_${fileNumber}_part${partNumber}.webp`;
 
-    /* =========================
-       2. 파일명 생성
-       확장자는 무조건 .webp
-    ========================= */
+        const path =
+          `works/${workId}/chapters/${chapterId}/${filename}`;
 
-    const number =
-      String(i + 1)
-        .padStart(
-          4,
-          "0"
+        const fileStart =
+          startPercent + range * (i / files.length);
+
+        const fileRange = range / files.length;
+
+        const url = await uploadFile(
+          convertedFile,
+          path,
+          progress => {
+            const partProgress =
+              (j + progress / 100) /
+              convertedFiles.length;
+
+            const percent =
+              fileStart + fileRange * partProgress;
+
+            setProgress(
+              percent,
+              `WebP 업로드 중 · 원본 ${i + 1}/${files.length}, 조각 ${j + 1}/${convertedFiles.length}`
+            );
+          }
         );
 
+        urls.push(url);
+      }
+    }
 
-    const filename =
-      `${batchId}_${number}.webp`;
+    return urls;
+  } catch (error) {
+    // 일부 업로드 후 오류가 발생하면 새로 올린 파일 정리
+    for (const url of urls) {
+      try {
+        await deleteR2File(url);
+      } catch (cleanupError) {
+        console.warn(
+          "업로드 실패 파일 정리 실패:",
+          cleanupError
+        );
+      }
+    }
 
-
-    const path =
-      `works/${workId}/chapters/${chapterId}/${filename}`;
-
-
-    /* =========================
-       3. 진행률 계산
-    ========================= */
-
-    const fileStart =
-      startPercent +
-      range *
-        (i / files.length);
-
-
-    const fileEnd =
-      startPercent +
-      range *
-        ((i + 1) / files.length);
-
-
-    /* =========================
-       4. 변환된 WebP 업로드
-    ========================= */
-
-    const url =
-      await uploadFile(
-        convertedFile,
-        path,
-        progress => {
-
-          const percent =
-            fileStart +
-            (
-              fileEnd -
-              fileStart
-            ) *
-            (
-              progress /
-              100
-            );
-
-
-          setProgress(
-            percent,
-            `WebP 업로드 중 · ${i + 1} / ${files.length}`
-          );
-
-        }
-      );
-
-
-    urls.push(
-      url
-    );
-
+    throw error;
   }
-
-
-  return urls;
 }
 
-
-/* =========================================================
-   R2 업로드
-========================================================= */
 
 async function uploadFile(
   file,

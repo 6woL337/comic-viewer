@@ -22,62 +22,6 @@ const R2_CONFIG = {
   workerUrl: "https://comic-upload.w82733037.workers.dev"
 };
 
-
-async function sendDiscordNotification(data) {
-  try {
-
-    const response = await fetch(
-      `${R2_CONFIG.workerUrl}/discord-notify`,
-      {
-        method: "POST",
-
-        headers: {
-          "Content-Type": "application/json"
-        },
-
-        body: JSON.stringify(data)
-      }
-    );
-
-
-    const result =
-      await response.json();
-
-
-    if (
-      !response.ok ||
-      !result.success
-    ) {
-
-      console.warn(
-        "Discord 알림 전송 실패:",
-        result
-      );
-
-      return false;
-    }
-
-
-    console.log(
-      "Discord 알림 전송 성공:",
-      result
-    );
-
-    return true;
-
-
-  } catch (error) {
-
-    console.warn(
-      "Discord 알림 오류:",
-      error
-    );
-
-    return false;
-  }
-}
-
-
 const batchId =
   Date.now();
 
@@ -105,9 +49,6 @@ let editingChapterId =
 let uploadMode =
   "new";
 
-let deepLinkHandled =
-  false;  
-
 
 /* 웹툰 */
 
@@ -123,8 +64,18 @@ let currentVolumeIndex =
 let currentPage =
   0;
 
-let pageMode =
-  1;
+let pageMode = 'single';
+try {
+  const savedMode = localStorage.getItem('comicViewerPageMode');
+  if (['scroll', 'single', 'double-first', 'double-second'].includes(savedMode)) pageMode = savedMode;
+} catch {}
+let routeReady = false;
+let routeVersion = 0;
+let chapterLoadVersion = 0;
+let webtoonRestoreTimer;
+let restoringWebtoon = false;
+let comicRenderVersion = 0;
+let restoringComic = false;
 
 const readingDirection =
   "ltr";
@@ -242,15 +193,7 @@ function startWorksListener() {
       renderUploaderFilters();
 
       renderWorks();
-
-
-      if (!deepLinkHandled) {
-
-  deepLinkHandled = true;
-
-  openDeepLink();
-
-}
+      if (!routeReady) { routeReady = true; initializeHistory(); }
 
 
       if (
@@ -298,101 +241,19 @@ function startWorksListener() {
 startWorksListener();
 
 
-async function openDeepLink() {
-
-  const params =
-    new URLSearchParams(
-      window.location.search
-    );
-
-
-  const workId =
-    params.get("work");
-
-
-  const chapterId =
-    params.get("chapter");
-
-
-  if (!workId) {
-    return;
-  }
-
-
-  const work =
-    works.find(
-      item =>
-        item.id === workId
-    );
-
-
-  if (!work) {
-
-    console.warn(
-      "링크의 작품을 찾을 수 없습니다:",
-      workId
-    );
-
-    return;
-  }
-
-
-  // 작품 상세 열기
-  await openWork(work);
-
-
-  // chapter가 없으면 작품 상세까지만
-  if (!chapterId) {
-    return;
-  }
-
-
-  const chapterIndex =
-    currentChapters.findIndex(
-      chapter =>
-        chapter.id === chapterId
-    );
-
-
-  if (chapterIndex === -1) {
-
-    console.warn(
-      "링크의 회차/권을 찾을 수 없습니다:",
-      chapterId
-    );
-
-    return;
-  }
-
-
-  // 웹툰
-  if (
-    work.type === "webtoon"
-  ) {
-
-    openWebtoonEpisode(
-      chapterIndex
-    );
-
-  }
-
-  // 만화
-  else {
-
-    openComicVolume(
-      chapterIndex
-    );
-
-  }
-
-}
-
-
 /* =========================================================
    화면
 ========================================================= */
 
 function hideAllPages() {
+  ++comicRenderVersion;
+  restoringComic = false;
+  clearTimeout(webtoonRestoreTimer);
+  clearTimeout(scrollSaveTimer);
+  restoringWebtoon = false;
+  document.body.classList.remove('reading-mode');
+  setViewerBars(true);
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 
   libraryPage.classList.add(
     "hidden"
@@ -413,7 +274,8 @@ function hideAllPages() {
 }
 
 
-function showLibrary() {
+function showLibrary(record = true) {
+  if (record !== false) recordRoute(null);
 
   hideAllPages();
 
@@ -435,7 +297,8 @@ function showLibrary() {
 }
 
 
-function showDetail() {
+function showDetail(record = true) {
+  if (record !== false && selectedWork) recordRoute(selectedWork.id);
 
   hideAllPages();
 
@@ -879,7 +742,7 @@ sortSelect.addEventListener(
 ========================================================= */
 
 async function openWork(
-  work
+  work, record = true
 ) {
 
   selectedWork =
@@ -888,8 +751,9 @@ async function openWork(
 
   renderDetailInfo();
 
-  showDetail();
-
+  currentChapters = [];
+  renderChapterList();
+  showDetail(record);
 
   await loadChapters();
 
@@ -1554,6 +1418,8 @@ function preloadComicPages() {
 ========================================================= */
 
 async function loadChapters() {
+  const loadVersion = ++chapterLoadVersion;
+  const workId = selectedWork?.id;
 
   if (
     !selectedWork
@@ -1595,6 +1461,7 @@ async function loadChapters() {
       );
 
 
+    if (loadVersion !== chapterLoadVersion || selectedWork?.id !== workId) return;
     currentChapters =
       snapshot.docs.map(
         item => ({
@@ -2613,7 +2480,7 @@ document.getElementById(
   "detailBackBtn"
 ).addEventListener(
   "click",
-  showLibrary
+  backToLibrary
 );
 
 
@@ -2621,7 +2488,7 @@ document.getElementById(
   "webtoonBackBtn"
 ).addEventListener(
   "click",
-  showDetail
+  backToDetail
 );
 
 
@@ -2629,7 +2496,7 @@ document.getElementById(
   "comicBackBtn"
 ).addEventListener(
   "click",
-  showDetail
+  backToDetail
 );
 
 
@@ -2638,7 +2505,7 @@ document.getElementById(
 ========================================================= */
 
 function openWebtoonEpisode(
-  index
+  index, record = true
 ) {
 
   if (
@@ -2662,6 +2529,8 @@ function openWebtoonEpisode(
   webtoonViewer.classList.remove(
     "hidden"
   );
+  document.body.classList.add('reading-mode');
+  if (record) recordRoute(selectedWork.id, chapter.id, true);
 
 
   document.getElementById(
@@ -2775,9 +2644,10 @@ images
     );
 
 
-  setTimeout(
+  restoringWebtoon = true;
+  webtoonRestoreTimer = setTimeout(
     () => {
-
+      restoringWebtoon = false;
       window.scrollTo(
         0,
         saved !== null
@@ -2874,7 +2744,7 @@ window.addEventListener(
   () => {
 
     if (
-      webtoonViewer.classList
+      restoringWebtoon || webtoonViewer.classList
         .contains("hidden") ||
       !selectedWork ||
       !currentChapters[
@@ -2993,7 +2863,7 @@ function preloadWebtoonAround(
 ========================================================= */
 
 function openComicVolume(
-  index
+  index, record = true
 ) {
 
   if (
@@ -3036,6 +2906,8 @@ function openComicVolume(
   comicViewer.classList.remove(
     "hidden"
   );
+  document.body.classList.add('reading-mode');
+  if (record) recordRoute(selectedWork.id, chapter.id, true);
 
 
   document.getElementById(
@@ -3055,355 +2927,95 @@ function openComicVolume(
 
 
   renderComicPages();
-
-  window.scrollTo(
-    0,
-    0
-  );
+  if (pageMode !== "scroll") window.scrollTo(0, 0);
 
 }
 
+
+function spreadStart(page) {
+  page = Math.floor(clampPage(page));
+  if (pageMode === 'double-first') return page - page % 2;
+  if (pageMode === 'double-second' && page > 0) return 1 + Math.floor((page - 1) / 2) * 2;
+  return page;
+}
+
+function spreadSize() {
+  return pageMode === 'double-first' || (pageMode === 'double-second' && currentPage > 0) ? 2 : 1;
+}
 
 function renderComicPages() {
-
-  const chapter =
-    currentChapters[
-      currentVolumeIndex
-    ];
-
-
-  if (
-    !chapter
-  ) {
-    return;
+  const renderVersion = ++comicRenderVersion;
+  restoringComic = false;
+  const chapter = currentChapters[currentVolumeIndex];
+  if (!chapter) return;
+  const pages = chapter.images || [];
+  const container = document.getElementById('comicPages');
+  currentPage = spreadStart(currentPage);
+  container.replaceChildren();
+  comicViewer.classList.toggle('scroll-mode', pageMode === 'scroll');
+  container.classList.toggle('double', spreadSize() === 2);
+  const indexes = pageMode === 'scroll' ? pages.map((_, i) => i) :
+    Array.from({length: Math.min(spreadSize(), pages.length - currentPage)}, (_, i) => currentPage + i);
+  for (const index of indexes) {
+    const image = document.createElement('img');
+    image.className = 'comic-page';
+    image.loading = pageMode === 'scroll' && index > currentPage + 2 ? 'lazy' : 'eager';
+    image.decoding = 'async';
+    image.src = pages[index];
+    image.alt = (index + 1) + '쪽';
+    image.dataset.page = index;
+    container.appendChild(image);
   }
-
-
-  const pages =
-    chapter.images || [];
-
-
-  const container =
-    document.getElementById(
-      "comicPages"
-    );
-
-
-  container.innerHTML =
-    "";
-
-
-  container.classList.toggle(
-    "double",
-    pageMode === 2
-  );
-
-
-  if (
-    pages.length === 0
-  ) {
-
-    container.innerHTML =
-      "<div>페이지가 없습니다.</div>";
-
-    return;
-
-  }
-
-
-  currentPage =
-    clampPage(
-      currentPage
-    );
-
-
-  let indexes =
-    [currentPage];
-
-
-  if (
-    pageMode === 2 &&
-    currentPage + 1 <
-    pages.length
-  ) {
-
-    indexes.push(
-      currentPage + 1
-    );
-
-  }
-
-
-  indexes.forEach(
-    pageIndex => {
-
-      const image =
-        document.createElement(
-          "img"
-        );
-
-      image.className =
-        "comic-page";
-
-      image.src =
-        pages[pageIndex];
-
-      image.alt =
-        `${pageIndex + 1}쪽`;
-
-
-      container.appendChild(
-        image
-      );
-
-    }
-  );
-
-
+  if (!pages.length) container.textContent = '페이지가 없습니다.';
   updateComicControls();
-
   saveComicProgress();
-
   preloadComicPages();
-
+  if (pageMode === 'scroll') {
+    restoringComic = true;
+    const target = container.children[currentPage];
+    const version = routeVersion;
+    const restore = () => {
+      if (renderVersion !== comicRenderVersion) return;
+      restoringComic = false;
+      if (version === routeVersion && pageMode === 'scroll' && !comicViewer.classList.contains('hidden') && target?.isConnected)
+        target.scrollIntoView({block: 'start'});
+    };
+    // Earlier image dimensions must settle before restoring a page in a long volume.
+    Promise.all(Array.from(container.children).slice(0, currentPage + 1).map(img =>
+      img.decode ? img.decode().catch(() => {}) : Promise.resolve())).then(restore);
+  }
 }
 
-
-function moveComic(
-  direction
-) {
-
-  const chapter =
-    currentChapters[
-      currentVolumeIndex
-    ];
-
-  if (!chapter) {
-    return;
-  }
-
-
-  const pages =
-    chapter.images || [];
-
-
-  /* =========================
-     다음
-  ========================= */
-
-  if (
-    direction === "next"
-  ) {
-
-    const nextPage =
-      currentPage +
-      pageMode;
-
-
-    if (
-      nextPage <
-      pages.length
-    ) {
-
-      currentPage =
-        nextPage;
-
+function moveComic(direction) {
+  const pages = currentChapters[currentVolumeIndex]?.images || [];
+  if (!pages.length) return;
+  const next = direction === 'next' ? currentPage + spreadSize() : spreadStart(currentPage - 1);
+  if (direction === 'prev' && currentPage === 0) {
+    if (currentVolumeIndex > 0) {
+      openComicVolume(currentVolumeIndex - 1);
+      currentPage = spreadStart((currentChapters[currentVolumeIndex].images || []).length - 1);
       renderComicPages();
-
-      return;
     }
-
-
-    /* 다음 권 */
-
-    if (
-      currentVolumeIndex <
-      currentChapters.length - 1
-    ) {
-
-      openComicVolume(
-        currentVolumeIndex + 1
-      );
-
-    }
-
-    return;
-  }
-
-
-  /* =========================
-     이전
-  ========================= */
-
-  if (
-    direction === "prev"
-  ) {
-
-    /*
-      현재 권에서 아직 앞 페이지가 있으면
-      무조건 0 이하로 떨어지지 않게 이동
-    */
-
-    if (
-      currentPage > 0
-    ) {
-
-      currentPage =
-        Math.max(
-          0,
-          currentPage - pageMode
-        );
-
-
-      /*
-        2페이지 보기일 때
-        0,2,4,6... 위치로 맞춤
-      */
-
-      if (
-        pageMode === 2
-      ) {
-
-        currentPage =
-          Math.floor(
-            currentPage / 2
-          ) * 2;
-
-      }
-
-
-      renderComicPages();
-
-      return;
-    }
-
-
-    /* =========================
-       이전 권
-    ========================= */
-
-    if (
-      currentVolumeIndex > 0
-    ) {
-
-      currentVolumeIndex--;
-
-
-      const previousChapter =
-        currentChapters[
-          currentVolumeIndex
-        ];
-
-
-      const previousPages =
-        previousChapter.images ||
-        [];
-
-
-      /*
-        이전 권의 마지막 보기 위치 계산
-      */
-
-      if (
-        pageMode === 2
-      ) {
-
-        currentPage =
-          Math.max(
-            0,
-            Math.floor(
-              (
-                previousPages.length - 1
-              ) / 2
-            ) * 2
-          );
-
-      } else {
-
-        currentPage =
-          Math.max(
-            0,
-            previousPages.length - 1
-          );
-
-      }
-
-
-      document.getElementById(
-        "comicViewerVolume"
-      ).textContent =
-        `${previousChapter.number}권${
-          previousChapter.title
-            ? ` · ${previousChapter.title}`
-            : ""
-        }`;
-
-
-      renderComicPages();
-
-    }
-
-  }
-
+  } else if (next < pages.length) {
+    currentPage = next;
+    renderComicPages();
+  } else if (currentVolumeIndex < currentChapters.length - 1) openComicVolume(currentVolumeIndex + 1);
 }
-
 
 function updateComicControls() {
-
-  const chapter =
-    currentChapters[
-      currentVolumeIndex
-    ];
-
-
-  if (
-    !chapter
-  ) {
-    return;
-  }
-
-
-  const pages =
-    chapter.images || [];
-
-
-  const displayedEnd =
-    Math.min(
-      currentPage +
-      pageMode,
-      pages.length
-    );
-
-
-  const indicator =
-    pageMode === 1
-      ? `${currentPage + 1} / ${pages.length}`
-      : `${currentPage + 1} - ${displayedEnd} / ${pages.length}`;
-
-
-  document.getElementById(
-    "pageIndicator"
-  ).textContent =
-    indicator;
-
-
-  const slider =
-    document.getElementById(
-      "pageSlider"
-    );
-
-
-  slider.max =
-    Math.max(
-      0,
-      pages.length - 1
-    );
-
-  slider.value =
-    currentPage;
-
+  const pages = currentChapters[currentVolumeIndex]?.images || [];
+  const end = Math.min(currentPage + spreadSize(), pages.length);
+  document.getElementById('pageIndicator').textContent = !pages.length ? '0 / 0' :
+    (end > currentPage + 1 ? (currentPage + 1) + '–' + end : String(currentPage + 1)) + ' / ' + pages.length;
+  const slider = document.getElementById('pageSlider');
+  slider.max = Math.max(0, pages.length - 1);
+  slider.value = currentPage;
+  slider.disabled = !pages.length;
+  document.getElementById('prevVolumeBtn').disabled = currentVolumeIndex <= 0;
+  document.getElementById('nextVolumeBtn').disabled = currentVolumeIndex >= currentChapters.length - 1;
+  document.getElementById('comicLeftBtn').disabled = currentPage === 0 && currentVolumeIndex === 0;
+  document.getElementById('comicRightBtn').disabled = end >= pages.length && currentVolumeIndex >= currentChapters.length - 1;
 }
-
 
 function saveComicProgress() {
 
@@ -3509,7 +3121,8 @@ document.getElementById(
 document.addEventListener(
   "keydown",
   event => {
-
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey ||
+        event.target.closest('input, select, textarea, button, [contenteditable]') || pageMode === 'scroll') return;
     if (
       comicViewer.classList
         .contains("hidden")
@@ -3547,72 +3160,6 @@ document.addEventListener(
 
   }
 );
-
-document.getElementById(
-  "singlePageBtn"
-).addEventListener(
-  "click",
-  () => {
-
-    pageMode =
-      1;
-
-    updatePageModeButtons();
-
-    renderComicPages();
-
-  }
-);
-
-
-document.getElementById(
-  "doublePageBtn"
-).addEventListener(
-  "click",
-  () => {
-
-    pageMode =
-      2;
-
-
-    /*
-      2페이지 보기 시작점을
-      0, 2, 4, 6...으로 정렬
-    */
-
-    currentPage =
-      Math.floor(
-        currentPage / 2
-      ) * 2;
-
-
-    updatePageModeButtons();
-
-    renderComicPages();
-
-  }
-);
-
-
-function updatePageModeButtons() {
-
-  document.getElementById(
-    "singlePageBtn"
-  ).classList.toggle(
-    "active",
-    pageMode === 1
-  );
-
-
-  document.getElementById(
-    "doublePageBtn"
-  ).classList.toggle(
-    "active",
-    pageMode === 2
-  );
-
-}
-
 
 document.getElementById(
   "pageSlider"
@@ -3965,103 +3512,166 @@ document.getElementById(
    이미지 WebP 자동 변환
 ========================================================= */
 
-// 본문은 작은 캔버스에서 조각별로 변환해 긴 이미지의 하단 손실을 방지합니다.
-const IMAGE_PART_MAX_HEIGHT = 4096;
-const IMAGE_CANVAS_MAX_PIXELS = 4 * 1024 * 1024;
-
-async function encodeWebPRegion(bitmap, sourceY, sourceHeight, width, height, name, quality) {
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-
-  try {
-    const context = canvas.getContext("2d", { alpha: true });
-    if (!context) {
-      throw new Error("이미지 변환용 캔버스를 만들지 못했습니다.");
-    }
-    context.drawImage(
-      bitmap, 0, sourceY, bitmap.width, sourceHeight,
-      0, 0, width, height
-    );
-
-    const blob = await new Promise((resolve, reject) => {
-      canvas.toBlob(result => {
-        if (!result || result.type !== "image/webp") {
-          reject(new Error("WebP 변환에 실패했습니다. WebP를 지원하는 브라우저를 사용해주세요."));
-          return;
-        }
-        resolve(result);
-      }, "image/webp", quality);
-    });
-
-    return new File([blob], name, { type: "image/webp" });
-  } finally {
-    // 업로드할 때는 압축 파일만 유지하고 캔버스 메모리는 바로 반환합니다.
-    canvas.width = 0;
-    canvas.height = 0;
-  }
-}
-
-// 표지는 한 장으로 유지하되 전체 이미지가 안전한 크기 안에 들어오도록 축소합니다.
 async function convertImageToWebP(
   file,
-  { quality = 0.85, maxWidth = 2200, maxHeight = null } = {}
+  {
+    quality = 0.85,
+    maxWidth = 2200,
+    maxHeight = null
+  } = {}
 ) {
-  if (!file) throw new Error("변환할 이미지가 없습니다.");
-  const bitmap = await createImageBitmap(file);
-  try {
-    if (!bitmap.width || !bitmap.height) throw new Error("이미지 크기가 올바르지 않습니다.");
-    const scale = Math.min(
-      1,
-      (maxWidth || 2200) / bitmap.width,
-      2200 / bitmap.width,
-      (maxHeight || IMAGE_PART_MAX_HEIGHT) / bitmap.height,
-      IMAGE_PART_MAX_HEIGHT / bitmap.height,
-      Math.sqrt(IMAGE_CANVAS_MAX_PIXELS / (bitmap.width * bitmap.height))
+
+  if (!file) {
+    throw new Error(
+      "변환할 이미지가 없습니다."
     );
-    return await encodeWebPRegion(
-      bitmap, 0, bitmap.height,
-      Math.max(1, Math.floor(bitmap.width * scale)),
-      Math.max(1, Math.floor(bitmap.height * scale)),
-      file.name.replace(/\.[^.]+$/, "") + ".webp", quality
-    );
-  } finally {
-    bitmap.close();
   }
-}
 
-async function* convertImageToWebPParts(file) {
-  if (!file) throw new Error("변환할 이미지가 없습니다.");
-  const bitmap = await createImageBitmap(file);
-  try {
-    if (!bitmap.width || !bitmap.height) throw new Error("이미지 크기가 올바르지 않습니다.");
-    const width = Math.min(bitmap.width, 2200);
-    const scale = width / bitmap.width;
-    const height = Math.max(1, Math.round(bitmap.height * scale));
-    const partHeight = Math.min(
-      IMAGE_PART_MAX_HEIGHT,
-      Math.floor(IMAGE_CANVAS_MAX_PIXELS / width)
+
+  const bitmap =
+    await createImageBitmap(
+      file
     );
-    const partCount = Math.ceil(height / partHeight);
-    const baseName = file.name.replace(/\.[^.]+$/, "");
 
-    for (let partIndex = 0; partIndex < partCount; partIndex++) {
-      const top = partIndex * partHeight;
-      const bottom = Math.min(height, top + partHeight);
-      // 동일한 경계 계산을 사용해 조각 사이의 누락/중복을 막고 마지막 원본 행까지 포함합니다.
-      const sourceTop = top * bitmap.height / height;
-      const sourceBottom = bottom === height
-        ? bitmap.height
-        : bottom * bitmap.height / height;
-      const part = await encodeWebPRegion(
-        bitmap, sourceTop, sourceBottom - sourceTop, width, bottom - top,
-        baseName + "_" + String(partIndex + 1).padStart(4, "0") + ".webp", 0.85
+
+  let width =
+    bitmap.width;
+
+  let height =
+    bitmap.height;
+
+
+  let scale =
+    1;
+
+
+  if (
+    maxWidth &&
+    width > maxWidth
+  ) {
+
+    scale =
+      Math.min(
+        scale,
+        maxWidth / width
       );
-      yield { file: part, partIndex, partCount };
-    }
-  } finally {
-    bitmap.close();
   }
+
+
+  if (
+    maxHeight &&
+    height > maxHeight
+  ) {
+
+    scale =
+      Math.min(
+        scale,
+        maxHeight / height
+      );
+  }
+
+
+  if (
+    scale < 1
+  ) {
+
+    width =
+      Math.round(
+        width * scale
+      );
+
+    height =
+      Math.round(
+        height * scale
+      );
+  }
+
+
+  const canvas =
+    document.createElement(
+      "canvas"
+    );
+
+
+  canvas.width =
+    width;
+
+  canvas.height =
+    height;
+
+
+  const context =
+    canvas.getContext(
+      "2d",
+      {
+        alpha: true
+      }
+    );
+
+
+  context.drawImage(
+    bitmap,
+    0,
+    0,
+    width,
+    height
+  );
+
+
+  bitmap.close();
+
+
+  const blob =
+    await new Promise(
+      (
+        resolve,
+        reject
+      ) => {
+
+        canvas.toBlob(
+          result => {
+
+            if (!result) {
+
+              reject(
+                new Error(
+                  "WebP 변환에 실패했습니다."
+                )
+              );
+
+              return;
+            }
+
+
+            resolve(
+              result
+            );
+
+          },
+          "image/webp",
+          quality
+        );
+
+      }
+    );
+
+
+  const originalBaseName =
+    file.name
+      .replace(
+        /\.[^.]+$/,
+        ""
+      );
+
+
+  return new File(
+    [blob],
+    `${originalBaseName}.webp`,
+    {
+      type:
+        "image/webp"
+    }
+  );
 }
 
 /* =========================================================
@@ -4323,34 +3933,6 @@ const thumbnailUrl =
     );
 
 
-    await sendDiscordNotification({
-  type: "new_work",
-
-  workId:
-    workReference.id,
-
-  chapterId:
-    chapterReference.id,
-
-  workTitle:
-    title,
-
-  workType:
-    type,
-
-  uploader:
-    uploader,
-
-  chapterNumber:
-    chapterNumber,
-
-  chapterTitle:
-    chapterTitle,
-
-  thumbnailUrl:
-    thumbnailUrl
-});
-
     setProgress(
       100,
       "업로드 완료!"
@@ -4546,35 +4128,6 @@ async function uploadNewChapter() {
     );
 
 
-    await sendDiscordNotification({
-  type: "new_chapter",
-
-  workId:
-    selectedWork.id,
-
-  chapterId:
-    chapterReference.id,
-
-  workTitle:
-    selectedWork.title,
-
-  workType:
-    selectedWork.type,
-
-  uploader:
-    selectedWork.uploader,
-
-  chapterNumber:
-    chapterNumber,
-
-  chapterTitle:
-    chapterTitle,
-
-  thumbnailUrl:
-    selectedWork.thumbnailUrl || ""
-});
-
-
     setProgress(
       100,
       "업로드 완료!"
@@ -4627,36 +4180,134 @@ async function uploadNewChapter() {
 ========================================================= */
 
 async function uploadChapterImages(
-  workId, chapterId, files, startPercent, endPercent
+  workId,
+  chapterId,
+  files,
+  startPercent,
+  endPercent
 ) {
-  const urls = [];
-  const range = endPercent - startPercent;
-  const batchId = crypto.randomUUID();
 
-  for (let i = 0; i < files.length; i++) {
-    setProgress(
-      startPercent + range * i / files.length,
-      `이미지 분할·변환 중 · ${i + 1} / ${files.length}`
+  const urls = [];
+
+  const range =
+    endPercent - startPercent;
+
+  /*
+    같은 회차를 수정할 때
+    브라우저/R2 캐시와 파일명 충돌을 피하기 위한 ID
+  */
+  const batchId =
+    Date.now();
+
+
+  for (
+    let i = 0;
+    i < files.length;
+    i++
+  ) {
+
+    const originalFile =
+      files[i];
+
+
+    /* =========================
+       1. WebP 변환
+    ========================= */
+
+    const convertedFile =
+      await convertImageToWebP(
+        originalFile,
+        {
+          quality: 0.85,
+          maxWidth: 2200
+        }
+      );
+
+
+    console.log(
+      `[WebP ${i + 1}/${files.length}]`,
+      originalFile.name,
+      originalFile.type,
+      "→",
+      convertedFile.name,
+      convertedFile.type
     );
 
-    // 한 조각씩 변환하고 업로드하므로 모든 조각을 메모리에 쌓지 않습니다.
-    for await (const { file, partIndex, partCount } of convertImageToWebPParts(files[i])) {
-      const number = String(i + 1).padStart(4, "0");
-      const partNumber = String(partIndex + 1).padStart(4, "0");
-      const path = `works/${workId}/chapters/${chapterId}/${batchId}_${number}_${partNumber}.webp`;
-      const reportProgress = progress => {
-        const fraction = (partIndex + progress / 100) / partCount;
-        setProgress(
-          startPercent + range * (i + fraction) / files.length,
-          `WebP 업로드 중 · 이미지 ${i + 1} / ${files.length} · 분할 ${partIndex + 1} / ${partCount}`
+
+    /* =========================
+       2. 파일명 생성
+       확장자는 무조건 .webp
+    ========================= */
+
+    const number =
+      String(i + 1)
+        .padStart(
+          4,
+          "0"
         );
-      };
-      reportProgress(0);
-      const url = await uploadFile(file, path, reportProgress);
-      urls.push(url);
-      reportProgress(100);
-    }
+
+
+    const filename =
+      `${batchId}_${number}.webp`;
+
+
+    const path =
+      `works/${workId}/chapters/${chapterId}/${filename}`;
+
+
+    /* =========================
+       3. 진행률 계산
+    ========================= */
+
+    const fileStart =
+      startPercent +
+      range *
+        (i / files.length);
+
+
+    const fileEnd =
+      startPercent +
+      range *
+        ((i + 1) / files.length);
+
+
+    /* =========================
+       4. 변환된 WebP 업로드
+    ========================= */
+
+    const url =
+      await uploadFile(
+        convertedFile,
+        path,
+        progress => {
+
+          const percent =
+            fileStart +
+            (
+              fileEnd -
+              fileStart
+            ) *
+            (
+              progress /
+              100
+            );
+
+
+          setProgress(
+            percent,
+            `WebP 업로드 중 · ${i + 1} / ${files.length}`
+          );
+
+        }
+      );
+
+
+    urls.push(
+      url
+    );
+
   }
+
 
   return urls;
 }
@@ -5554,3 +5205,142 @@ function firebaseErrorMessage(
 
 }
 
+// URL/history is the source of truth when returning with browser navigation.
+function routeURL(workId, chapterId) {
+  const url = new URL(location.href);
+  url.searchParams.delete('work');
+  url.searchParams.delete('chapter');
+  if (workId) url.searchParams.set('work', workId);
+  if (workId && chapterId) url.searchParams.set('chapter', chapterId);
+  return url;
+}
+
+function recordRoute(workId, chapterId, replaceChapter = false) {
+  ++routeVersion;
+  const url = routeURL(workId, chapterId);
+  if (url.href === location.href) return;
+  const old = history.state?.comicViewer;
+  // Adjacent chapters share one viewer entry, so Back always returns to the list.
+  const replace = replaceChapter && old?.workId === workId && old?.chapterId;
+  const depth = replace ? old.depth : (old?.depth ?? 0) + 1;
+  history[replace ? 'replaceState' : 'pushState'](
+    {comicViewer: {workId, chapterId, depth}}, '', url);
+}
+
+function initializeHistory() {
+  const params = new URLSearchParams(location.search);
+  const workId = params.get('work');
+  const chapterId = workId ? params.get('chapter') : null;
+  if (!history.state?.comicViewer) {
+    // Seed parents once for a direct Discord link; reload must not duplicate them.
+    history.replaceState({comicViewer: {depth: 0}}, '', routeURL(null));
+    if (workId) history.pushState({comicViewer: {workId, depth: 1}}, '', routeURL(workId));
+    if (chapterId) history.pushState({comicViewer: {workId, chapterId, depth: 2}}, '', routeURL(workId, chapterId));
+  }
+  applyURLRoute();
+}
+
+async function applyURLRoute() {
+  const version = ++routeVersion;
+  const params = new URLSearchParams(location.search);
+  const workId = params.get('work');
+  const chapterId = params.get('chapter');
+  if (!workId) { showLibrary(false); return; }
+  const work = works.find(item => item.id === workId);
+  if (!work) {
+    showLibrary(false);
+    history.replaceState({comicViewer: {depth: history.state?.comicViewer?.depth ?? 0}}, '', routeURL(null));
+    libraryStatus.textContent = '링크의 작품을 찾을 수 없습니다.';
+    return;
+  }
+  await openWork(work, false);
+  if (version !== routeVersion || selectedWork?.id !== workId) return;
+  if (!chapterId) return;
+  const index = currentChapters.findIndex(chapter => chapter.id === chapterId);
+  if (index < 0) {
+    // Keep a failed-load URL intact for retry; missing chapters fall back to detail.
+    if (document.getElementById('chapterStatus').textContent) return;
+    history.replaceState({comicViewer: {workId, depth: history.state?.comicViewer?.depth ?? 1}}, '', routeURL(workId));
+    document.getElementById('chapterStatus').textContent = '링크의 회차/권을 찾을 수 없습니다.';
+    return;
+  }
+  if (work.type === 'webtoon') openWebtoonEpisode(index, false);
+  else openComicVolume(index, false);
+}
+
+window.addEventListener('popstate', () => { if (routeReady) applyURLRoute(); });
+history.scrollRestoration = 'manual';
+
+function backToDetail() {
+  if (history.state?.comicViewer?.chapterId && history.state.comicViewer.depth > 0) history.back();
+  else if (selectedWork) showDetail();
+  else showLibrary();
+}
+function backToLibrary() {
+  if (history.state?.comicViewer?.workId && history.state.comicViewer.depth > 0) history.back();
+  else showLibrary();
+}
+
+function setViewerBars(visible) {
+  for (const viewer of [webtoonViewer, comicViewer]) {
+    viewer.classList.toggle('bars-hidden', !visible);
+    viewer.querySelectorAll('.viewer-header, .viewer-bottom').forEach(bar => {
+      bar.inert = !visible;
+      bar.setAttribute('aria-hidden', String(!visible));
+    });
+  }
+  if (!visible) document.getElementById('pageSettings').open = false;
+}
+
+for (const viewer of [webtoonViewer, comicViewer]) {
+  let pointer = null;
+  viewer.addEventListener('pointerdown', event => {
+    pointer = {x: event.clientX, y: event.clientY};
+  });
+  viewer.addEventListener('pointercancel', () => { pointer = null; });
+  viewer.addEventListener('click', event => {
+    if (event.button !== 0 || event.target.closest('button, input, select, label, summary, details, a, .viewer-header, .viewer-bottom')) return;
+    if (pointer && Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 10) return;
+    if (window.getSelection()?.toString()) return;
+    setViewerBars(viewer.classList.contains('bars-hidden'));
+    pointer = null;
+  });
+}
+
+document.getElementById('webtoonHomeBtn').addEventListener('click', backToDetail);
+document.getElementById('comicHomeBtn').addEventListener('click', backToDetail);
+document.getElementById('prevVolumeBtn').addEventListener('click', () => {
+  if (currentVolumeIndex > 0) openComicVolume(currentVolumeIndex - 1);
+});
+document.getElementById('nextVolumeBtn').addEventListener('click', () => {
+  if (currentVolumeIndex < currentChapters.length - 1) openComicVolume(currentVolumeIndex + 1);
+});
+const pageModeSelect = document.getElementById('pageModeSelect');
+pageModeSelect.value = pageMode;
+pageModeSelect.addEventListener('change', () => {
+  pageMode = pageModeSelect.value;
+  try { localStorage.setItem('comicViewerPageMode', pageMode); } catch {}
+  document.getElementById('pageSettings').open = false;
+  renderComicPages();
+  if (pageMode !== 'scroll') window.scrollTo(0, 0);
+});
+
+let comicScrollFrame = 0;
+function trackComicScroll() {
+  if (restoringComic || pageMode !== 'scroll' || comicViewer.classList.contains('hidden') || comicScrollFrame) return;
+  comicScrollFrame = requestAnimationFrame(() => {
+    comicScrollFrame = 0;
+    const images = document.querySelectorAll('#comicPages img');
+    const readingLine = 90;
+    for (const image of images) {
+      if (image.getBoundingClientRect().bottom > readingLine) {
+        currentPage = Number(image.dataset.page);
+        updateComicControls();
+        saveComicProgress();
+        break;
+      }
+    }
+  });
+}
+window.addEventListener('scroll', trackComicScroll, {passive: true});
+comicViewer.addEventListener('scroll', trackComicScroll, {passive: true});

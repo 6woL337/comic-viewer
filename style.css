@@ -1173,3 +1173,58 @@ textarea {
     font-size: 11px;
   }
 }
+
+/* Immersive reader: fixed chrome does not move artwork when toggled. */
+body.reading-mode { background: #101011; }
+body.reading-mode > .top-header { display: none; }
+body.reading-mode > main { width: 100%; max-width: none; margin: 0; padding: 0; }
+body.reading-mode #webtoonViewer { width: 100%; }
+body.reading-mode .viewer-page {
+  min-height: 100dvh;
+  padding-top: calc(70px + env(safe-area-inset-top));
+  padding-bottom: calc(76px + env(safe-area-inset-bottom));
+}
+body.reading-mode #comicViewer { padding-bottom: calc(125px + env(safe-area-inset-bottom)); }
+.reading-mode .viewer-header {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 500;
+  padding-top: calc(8px + env(safe-area-inset-top));
+}
+.viewer-bottom {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 500;
+  padding: 10px max(10px, env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  background: rgba(14, 14, 15, .97); color: #fff;
+}
+.webtoon-navigation.viewer-bottom { display: grid; grid-template-columns: repeat(3, minmax(0, 160px)); justify-content: center; }
+.volume-navigation { display: grid; grid-template-columns: repeat(4, minmax(0, 160px)); gap: 8px; justify-content: center; align-items: stretch; }
+.viewer-bottom .viewer-nav-button { min-height: 44px; padding: 10px 8px; white-space: nowrap; }
+.viewer-bottom button:disabled { opacity: .35; cursor: default; }
+.comic-bottom .page-indicator { padding: 0 0 4px; font-size: 12px; }
+.comic-bottom .page-slider { width: min(640px, 95%); margin: 0 auto 8px; height: 20px; }
+.page-settings { position: relative; min-width: 0; }
+.page-settings summary { display: flex; align-items: center; justify-content: center; min-height: 44px; height: 100%; padding: 8px; border-radius: 10px; background: #303034; cursor: pointer; font-size: 14px; white-space: nowrap; list-style: none; }
+.page-settings summary::-webkit-details-marker { display: none; }
+.page-settings > label { position: absolute; right: 0; bottom: calc(100% + 12px); width: min(270px, 85vw); padding: 16px; border: 1px solid #555; border-radius: 12px; background: #222; box-shadow: 0 8px 30px #0008; }
+.page-settings select { margin-top: 10px; width: 100%; color: white; background: #333; }
+.viewer-header, .viewer-bottom { transition: opacity .15s ease; }
+.bars-hidden .viewer-header, .bars-hidden .viewer-bottom { opacity: 0; visibility: hidden; pointer-events: none; }
+.reading-mode .comic-stage { min-height: calc(100dvh - 205px); padding: 0 48px; }
+.reading-mode .comic-page { max-height: calc(100dvh - 205px); }
+.reading-mode .comic-arrow { width: 44px; }
+.reading-mode .comic-arrow.left { left: 0; }
+.reading-mode .comic-arrow.right { right: 0; }
+.scroll-mode .comic-stage { padding: 0; }
+.scroll-mode .comic-pages { display: block; width: min(900px, 100%); overflow: visible; }
+.reading-mode .scroll-mode .comic-page { width: 100%; height: auto; max-height: none; max-width: 100%; scroll-margin-top: 78px; }
+.scroll-mode .comic-arrow { display: none; }
+#comicViewer:fullscreen { overflow-y: auto; }
+@media (max-width: 600px) {
+  .reading-mode .comic-stage { padding-left: 28px; padding-right: 28px; }
+  .reading-mode .comic-arrow { width: 28px; font-size: 32px; }
+  .reading-mode .scroll-mode .comic-stage { padding: 0; }
+  .viewer-bottom .viewer-nav-button, .page-settings summary { font-size: 12px; padding: 8px 4px; }
+  .volume-navigation { gap: 5px; }
+  .viewer-title span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .viewer-header, .viewer-bottom { transition: none; }
+}

@@ -278,7 +278,7 @@
     </div>
 
 
-    <div class="webtoon-navigation">
+    <div class="webtoon-navigation viewer-bottom">
 
       <button
         id="prevEpisodeBtn"
@@ -287,6 +287,7 @@
         ← 이전화
       </button>
 
+      <button id="webtoonHomeBtn" class="viewer-nav-button">홈</button>
       <button
         id="nextEpisodeBtn"
         class="viewer-nav-button"
@@ -336,29 +337,6 @@
     </div>
 
 
-    <div class="comic-toolbar">
-
-      <div class="toolbar-group">
-
-        <button
-          id="singlePageBtn"
-          class="toolbar-button active"
-        >
-          1장
-        </button>
-
-        <button
-          id="doublePageBtn"
-          class="toolbar-button"
-        >
-          2장
-        </button>
-
-      </div>
-
-    </div>
-
-
     <div class="comic-stage">
 
       <button
@@ -386,6 +364,7 @@
     </div>
 
 
+    <div class="viewer-bottom comic-bottom">
     <div
       id="pageIndicator"
       class="page-indicator"
@@ -395,6 +374,7 @@
 
     <input
       id="pageSlider"
+      aria-label="페이지 이동"
       class="page-slider"
       type="range"
       min="0"
@@ -402,6 +382,23 @@
       value="0"
     >
 
+    <nav class="volume-navigation" aria-label="권 이동 및 페이지 설정">
+      <button id="prevVolumeBtn" class="viewer-nav-button">이전권</button>
+      <button id="comicHomeBtn" class="viewer-nav-button">홈</button>
+      <details id="pageSettings" class="page-settings">
+        <summary>페이지 설정</summary>
+        <label>페이지 보기
+          <select id="pageModeSelect">
+            <option value="scroll">스크롤 보기</option>
+            <option value="single">한쪽 보기</option>
+            <option value="double-first">1페이지부터 두쪽 보기</option>
+            <option value="double-second">2페이지부터 두쪽 보기</option>
+          </select>
+        </label>
+      </details>
+      <button id="nextVolumeBtn" class="viewer-nav-button">다음권</button>
+    </nav>
+    </div>
   </section>
 
 </main>

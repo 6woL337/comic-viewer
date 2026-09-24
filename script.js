@@ -5238,6 +5238,7 @@ function writeRoute(workId, chapterId, depth, replace, library = libraryRoute())
 }
 
 function recordRoute(workId, chapterId, replace = false, searching = false) {
+  activateDeepLinkHistory();
   ++routeVersion;
   if (!searching) searchHistoryActive = false;
   if (!routeReady) return;
@@ -5269,13 +5270,37 @@ function initializeHistory() {
   const chapterId = workId ? params.get('chapter') : null;
   restoreLibraryRoute();
   if (!history.state?.comicViewer) {
-    // Seed parents once for direct links; reload and Forward reuse existing entries.
-    writeRoute(null, null, 0, true);
-    if (workId) writeRoute(workId, null, 1, false);
-    if (chapterId) writeRoute(workId, chapterId, 2, false);
+    // Do not create skippable entries before a real user interaction.
+    // Keep the original deep-link URL and render it immediately.
+    writeRoute(workId, chapterId, 0, true);
+    if (workId) {
+      history.replaceState({...history.state, comicViewer: {
+        ...history.state.comicViewer, pendingParents: true
+      }}, '', location.href);
+    }
   }
   applyURLRoute();
 }
+
+function activateDeepLinkHistory(event) {
+  if (!routeReady || !history.state?.comicViewer?.pendingParents) return;
+  // Capture-phase click runs synchronously inside the genuine tap/click gesture,
+  // before navigation handlers and without Firestore awaits or timers.
+  if (event && !event.isTrusted) return;
+  if (!event && !navigator.userActivation?.isActive) return;
+  const params = new URLSearchParams(location.search);
+  const workId = params.get('work');
+  const chapterId = workId ? params.get('chapter') : null;
+  writeRoute(null, null, 0, true);
+  if (workId) writeRoute(workId, null, 1, false);
+  if (chapterId) writeRoute(workId, chapterId, 2, false);
+}
+
+// A tap produces a trusted click on touch devices; scrolling alone is not enough.
+window.addEventListener('click', activateDeepLinkHistory, {capture: true});
+window.addEventListener('keydown', event => {
+  if (event.key === 'Enter' || event.key === ' ') activateDeepLinkHistory(event);
+}, {capture: true});
 
 async function applyURLRoute() {
   const version = ++routeVersion;
@@ -5314,11 +5339,13 @@ window.addEventListener('popstate', () => {
 history.scrollRestoration = 'manual';
 
 function backToDetail() {
+  activateDeepLinkHistory();
   if (history.state?.comicViewer?.depth > 0) history.back();
   else if (selectedWork) showDetail();
   else showLibrary();
 }
 function backToLibrary() {
+  activateDeepLinkHistory();
   if (history.state?.comicViewer?.depth > 0) history.back();
   else showLibrary();
 }

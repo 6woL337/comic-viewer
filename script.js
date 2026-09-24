@@ -105,6 +105,9 @@ let editingChapterId =
 let uploadMode =
   "new";
 
+let deepLinkHandled =
+  false;  
+
 
 /* 웹툰 */
 
@@ -241,6 +244,15 @@ function startWorksListener() {
       renderWorks();
 
 
+      if (!deepLinkHandled) {
+
+  deepLinkHandled = true;
+
+  openDeepLink();
+
+}
+
+
       if (
         selectedWork
       ) {
@@ -284,6 +296,96 @@ function startWorksListener() {
 
 
 startWorksListener();
+
+
+async function openDeepLink() {
+
+  const params =
+    new URLSearchParams(
+      window.location.search
+    );
+
+
+  const workId =
+    params.get("work");
+
+
+  const chapterId =
+    params.get("chapter");
+
+
+  if (!workId) {
+    return;
+  }
+
+
+  const work =
+    works.find(
+      item =>
+        item.id === workId
+    );
+
+
+  if (!work) {
+
+    console.warn(
+      "링크의 작품을 찾을 수 없습니다:",
+      workId
+    );
+
+    return;
+  }
+
+
+  // 작품 상세 열기
+  await openWork(work);
+
+
+  // chapter가 없으면 작품 상세까지만
+  if (!chapterId) {
+    return;
+  }
+
+
+  const chapterIndex =
+    currentChapters.findIndex(
+      chapter =>
+        chapter.id === chapterId
+    );
+
+
+  if (chapterIndex === -1) {
+
+    console.warn(
+      "링크의 회차/권을 찾을 수 없습니다:",
+      chapterId
+    );
+
+    return;
+  }
+
+
+  // 웹툰
+  if (
+    work.type === "webtoon"
+  ) {
+
+    openWebtoonEpisode(
+      chapterIndex
+    );
+
+  }
+
+  // 만화
+  else {
+
+    openComicVolume(
+      chapterIndex
+    );
+
+  }
+
+}
 
 
 /* =========================================================
@@ -4224,19 +4326,30 @@ const thumbnailUrl =
     await sendDiscordNotification({
   type: "new_work",
 
-  workTitle: title,
+  workId:
+    workReference.id,
 
-  workType: type,
+  chapterId:
+    chapterReference.id,
 
-  uploader: uploader,
+  workTitle:
+    title,
 
-  chapterNumber: chapterNumber,
+  workType:
+    type,
 
-  chapterTitle: chapterTitle,
+  uploader:
+    uploader,
 
-  thumbnailUrl: thumbnailUrl
+  chapterNumber:
+    chapterNumber,
+
+  chapterTitle:
+    chapterTitle,
+
+  thumbnailUrl:
+    thumbnailUrl
 });
-
 
     setProgress(
       100,
@@ -4435,6 +4548,12 @@ async function uploadNewChapter() {
 
     await sendDiscordNotification({
   type: "new_chapter",
+
+  workId:
+    selectedWork.id,
+
+  chapterId:
+    chapterReference.id,
 
   workTitle:
     selectedWork.title,
